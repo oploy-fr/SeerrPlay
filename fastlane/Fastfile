@@ -17,6 +17,9 @@ IOS_APP_IDENTIFIERS = [
 ].freeze
 TVOS_APP_IDENTIFIER = "app.seerrplay.tv"
 APPLE_TEAM_ID = "T494GRAXS3"
+IOS_APP_PROFILE = "match AppStore app.seerrplay.client"
+IOS_EXTENSION_PROFILE = "match AppStore app.seerrplay.client.SeerrPlayDownloadActivity"
+TVOS_APP_PROFILE = "match AppStore app.seerrplay.tv tvos"
 
 def required_environment_value(name)
   value = ENV[name]
@@ -113,6 +116,34 @@ lane :apple_beta do |options|
     platform: "tvos",
     app_identifier: TVOS_APP_IDENTIFIER,
     readonly: is_ci
+  )
+
+  update_code_signing_settings(
+    path: File.join(FLUTTER_APP_DIR, "ios", "Runner.xcodeproj"),
+    use_automatic_signing: false,
+    team_id: APPLE_TEAM_ID,
+    targets: ["Runner"],
+    build_configurations: ["Release"],
+    code_sign_identity: "Apple Distribution",
+    profile_name: IOS_APP_PROFILE
+  )
+  update_code_signing_settings(
+    path: File.join(FLUTTER_APP_DIR, "ios", "Runner.xcodeproj"),
+    use_automatic_signing: false,
+    team_id: APPLE_TEAM_ID,
+    targets: ["SeerrPlayDownloadActivity"],
+    build_configurations: ["Release"],
+    code_sign_identity: "Apple Distribution",
+    profile_name: IOS_EXTENSION_PROFILE
+  )
+  update_code_signing_settings(
+    path: TVOS_PROJECT,
+    use_automatic_signing: false,
+    team_id: APPLE_TEAM_ID,
+    targets: ["SeerrPlayTV"],
+    build_configurations: ["Release"],
+    code_sign_identity: "Apple Distribution",
+    profile_name: TVOS_APP_PROFILE
   )
 
   Dir.chdir(FLUTTER_APP_DIR) do
