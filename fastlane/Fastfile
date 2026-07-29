@@ -1,0 +1,218 @@
+require "base64"
+require "fileutils"
+
+opt_out_usage
+
+ROOT_DIR = File.expand_path("..", __dir__)
+FLUTTER_APP_DIR = File.join(ROOT_DIR, "apps", "seerrplay")
+IOS_WORKSPACE = File.join(FLUTTER_APP_DIR, "ios", "Runner.xcworkspace")
+IOS_EXPORT_OPTIONS = File.join(FLUTTER_APP_DIR, "ios", "ExportOptions.plist")
+TVOS_PROJECT = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "SeerrPlayTV.xcodeproj")
+TVOS_EXPORT_OPTIONS = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "ExportOptions.plist")
+OUTPUT_DIR = File.join(ROOT_DIR, "build", "fastlane")
+
+IOS_APP_IDENTIFIERS = [
+  "app.seerrplay.client",
+  "app.seerrplay.client.SeerrPlayDownloadActivity"
+].freeze
+TVOS_APP_IDENTIFIER = "app.seerrplay.tv"
+APPLE_TEAM_ID = "T494GRAXS3"
+
+def required_environment_value(name)
+  value = ENV[name]
+  UI.user_error!("Missing required environment variable #{name}") if value.nil? || value.empty?
+
+  value
+end
+
+def release_build_number(options)
+  value = options[:build_number] || ENV["GITHUB_RUN_NUMBER"] || ENV["BUILD_NUMBER"]
+  UI.user_error!("Provide build_number or set GITHUB_RUN_NUMBER") if value.nil? || value.to_s.empty?
+
+  value.to_s
+end
+
+def release_marketing_version
+  pubspec = File.read(File.join(FLUTTER_APP_DIR, "pubspec.yaml"))
+  match = pubspec.match(/^version:\s*([^+\s]+)/)
+  UI.user_error!("Unable to read the release version from pubspec.yaml") if match.nil?
+
+  match[1]
+end
+
+def configure_android_signing
+  keystore_path = File.join(FLUTTER_APP_DIR, "android", "upload-keystore.jks")
+  properties_path = File.join(FLUTTER_APP_DIR, "android", "key.properties")
+
+  File.binwrite(
+    keystore_path,
+    Base64.strict_decode64(required_environment_value("ANDROID_KEYSTORE_BASE64"))
+  )
+  File.write(
+    properties_path,
+    [
+      "storePassword=#{required_environment_value('ANDROID_STORE_PASSWORD')}",
+      "keyPassword=#{required_environment_value('ANDROID_KEY_PASSWORD')}",
+      "keyAlias=#{required_environment_value('ANDROID_KEY_ALIAS')}",
+      "storeFile=../upload-keystore.jks",
+      ""
+    ].join("\n")
+  )
+end
+
+def app_store_api_key
+  app_store_connect_api_key(
+    key_id: required_environment_value("APPLE_API_KEY_ID"),
+    issuer_id: required_environment_value("APPLE_API_ISSUER_ID"),
+    key_content: required_environment_value("APPLE_API_PRIVATE_KEY_BASE64"),
+    is_key_content_base64: true,
+    duration: 1_200,
+    in_house: false
+  )
+end
+
+desc "Create or refresh the encrypted Apple distribution assets in match"
+lane :sync_apple_signing do
+  api_key = app_store_api_key
+
+  match(
+    api_key: api_key,
+    type: "appstore",
+    platform: "ios",
+    app_identifier: IOS_APP_IDENTIFIERS,
+    readonly: false
+  )
+  match(
+    api_key: api_key,
+    type: "appstore",
+    platform: "tvos",
+    app_identifier: TVOS_APP_IDENTIFIER,
+    readonly: false
+  )
+end
+
+desc "Build iOS and tvOS, then upload both applications to TestFlight"
+lane :apple_beta do |options|
+  build_number = release_build_number(options)
+  marketing_version = release_marketing_version
+  api_key = app_store_api_key
+
+  setup_ci(force: true, timeout: 0) if is_ci
+  FileUtils.mkdir_p(OUTPUT_DIR)
+
+  match(
+    api_key: api_key,
+    type: "appstore",
+    platform: "ios",
+    app_identifier: IOS_APP_IDENTIFIERS,
+    readonly: is_ci
+  )
+  match(
+    api_key: api_key,
+    type: "appstore",
+    platform: "tvos",
+    app_identifier: TVOS_APP_IDENTIFIER,
+    readonly: is_ci
+  )
+
+  Dir.chdir(FLUTTER_APP_DIR) do
+    sh("flutter", "pub", "get")
+    sh(
+      "flutter",
+      "build",
+      "ios",
+      "--config-only",
+      "--release",
+      "--build-number=#{build_number}"
+    )
+    Dir.chdir("ios") { sh("pod", "install") }
+  end
+
+  ios_ipa = build_app(
+    workspace: IOS_WORKSPACE,
+    scheme: "Runner",
+    configuration: "Release",
+    sdk: "iphoneos",
+    clean: true,
+    export_options: IOS_EXPORT_OPTIONS,
+    output_directory: OUTPUT_DIR,
+    output_name: "SeerrPlay-iOS.ipa",
+    xcargs: [
+      "CURRENT_PROJECT_VERSION=#{build_number}",
+      "MARKETING_VERSION=#{marketing_version}"
+    ].join(" ")
+  )
+
+  tvos_ipa = build_app(
+    project: TVOS_PROJECT,
+    scheme: "SeerrPlayTV",
+    configuration: "Release",
+    sdk: "appletvos",
+    clean: true,
+    export_options: TVOS_EXPORT_OPTIONS,
+    output_directory: OUTPUT_DIR,
+    output_name: "SeerrPlay-tvOS.ipa",
+    xcargs: [
+      "CURRENT_PROJECT_VERSION=#{build_number}",
+      "MARKETING_VERSION=#{marketing_version}"
+    ].join(" ")
+  )
+
+  upload_to_testflight(
+    api_key: api_key,
+    app_identifier: IOS_APP_IDENTIFIERS.first,
+    app_platform: "ios",
+    ipa: ios_ipa,
+    skip_waiting_for_build_processing: true
+  )
+  upload_to_testflight(
+    api_key: api_key,
+    app_identifier: TVOS_APP_IDENTIFIER,
+    app_platform: "appletvos",
+    ipa: tvos_ipa,
+    skip_waiting_for_build_processing: true
+  )
+end
+
+platform :android do
+  desc "Build the signed Android App Bundle and upload it to internal testing"
+  lane :internal do |options|
+    build_number = release_build_number(options)
+    configure_android_signing
+    FileUtils.mkdir_p(OUTPUT_DIR)
+
+    aab_path = File.join(
+      FLUTTER_APP_DIR,
+      "build",
+      "app",
+      "outputs",
+      "bundle",
+      "release",
+      "app-release.aab"
+    )
+
+    Dir.chdir(FLUTTER_APP_DIR) do
+      sh("flutter", "pub", "get")
+      sh(
+        "flutter",
+        "build",
+        "appbundle",
+        "--release",
+        "--build-number=#{build_number}"
+      )
+      sh("jarsigner", "-verify", aab_path)
+    end
+
+    upload_to_play_store(
+      package_name: "app.seerrplay.client",
+      aab: aab_path,
+      track: "internal",
+      release_status: "completed",
+      json_key_data: required_environment_value("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

@@ -9,8 +9,11 @@ builds without storing signing material in the repository.
   Bundle build, an unsigned iOS Release build, and an unsigned tvOS Release
   build on every pull request and push to `main`.
 - `.github/workflows/publish.yml` runs for tags matching `v*` or manually from
-  the Actions tab. It uploads Android to the Google Play internal-testing track
-  and uploads iOS and tvOS to App Store Connect/TestFlight.
+  the Actions tab. GitHub Actions invokes the same Fastlane lanes that can be
+  run locally: Android is uploaded to the Google Play internal-testing track,
+  while iOS and tvOS are uploaded to App Store Connect/TestFlight. Manual runs
+  can target Android, Apple, or all stores; version tags always publish all
+  configured platforms.
 - `.github/workflows/pages.yml` publishes `store-site` to GitHub Pages for the
   public privacy-policy and support URLs.
 
@@ -50,9 +53,12 @@ Add these GitHub environment secrets:
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`: complete Google Play service-account JSON.
 
 The service account must be invited in Play Console and have release permission
-for `app.seerrplay.client`.
+for `app.seerrplay.client`. Fastlane `supply` uses this account to upload the
+signed Android App Bundle to the internal track. Google Play requires the app
+record and its first release to be created manually before `supply` can manage
+later releases.
 
-## Apple secrets
+## Apple signing with match
 
 Create the App Store Connect records and identifiers before the first workflow:
 
@@ -61,22 +67,73 @@ Create the App Store Connect records and identifiers before the first workflow:
   `app.seerrplay.client.SeerrPlayDownloadActivity`
 - tvOS: `app.seerrplay.tv`
 
-Export an Apple Distribution certificate with its private key as a password
-protected `.p12`. Create an App Store Connect API key that can upload builds and
-manage signing resources.
+Create a separate private GitHub repository for Fastlane match, for example
+`oploy-fr/SeerrPlay-Certificates`, and initialize its `main` branch with a
+README. This repository contains only encrypted Apple distribution certificates
+and provisioning profiles. Do not store signing assets in the public
+application repository.
+
+Create a team App Store Connect API key with the Admin role. Download the
+`AuthKey_*.p8` file immediately because Apple only allows it to be downloaded
+once. Fastlane uses this key both for provisioning and TestFlight uploads.
+
+Before running CI for the first time, initialize the encrypted signing
+repository from a trusted Mac:
+
+```sh
+export MATCH_GIT_URL="https://github.com/oploy-fr/SeerrPlay-Certificates.git"
+export APPLE_API_KEY_ID="<key-id>"
+export APPLE_API_ISSUER_ID="<issuer-id>"
+export APPLE_API_PRIVATE_KEY_BASE64="$(base64 < ~/Downloads/AuthKey_<key-id>.p8 | tr -d '\n')"
+export MATCH_PASSWORD="$(security find-generic-password \
+  -a 'oploy-fr/SeerrPlay-Certificates' \
+  -s 'SeerrPlay Fastlane Match' \
+  -w)"
+bundle exec fastlane sync_apple_signing
+```
+
+The Git credentials active on the Mac must be allowed to write to the private
+match repository. The setup stores the match password in the macOS Keychain;
+keep an additional offline backup because the encrypted signing repository
+cannot be decrypted without it.
 
 Add these GitHub environment secrets:
 
-- `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`: base64 representation of the `.p12`.
-- `APPLE_CERTIFICATE_PASSWORD`: `.p12` export password.
 - `APPLE_API_PRIVATE_KEY_BASE64`: base64 representation of the `AuthKey_*.p8`.
 - `APPLE_API_KEY_ID`: App Store Connect API key identifier.
 - `APPLE_API_ISSUER_ID`: App Store Connect issuer identifier.
-- `CI_KEYCHAIN_PASSWORD`: a strong random password used only for the temporary
-  CI keychain.
+- `MATCH_PASSWORD`: password used to encrypt the match repository.
+- `MATCH_GIT_PRIVATE_KEY`: private half of a dedicated read-only GitHub deploy
+  key installed on the private match repository.
 
-The workflow creates and removes a temporary macOS keychain. Xcode obtains
-provisioning profiles through the App Store Connect API using automatic signing.
+Add this GitHub environment variable:
+
+- `MATCH_GIT_URL`: SSH clone URL of the private match repository.
+
+Fastlane `setup_ci` creates a temporary macOS keychain. The CI workflow only
+reads existing signing assets from match; it never creates or replaces Apple
+certificates or profiles.
+
+## Local Fastlane commands
+
+Install the locked Ruby dependencies:
+
+```sh
+bundle install
+```
+
+Available release lanes:
+
+```sh
+bundle exec fastlane android internal build_number:2
+bundle exec fastlane apple_beta build_number:2
+bundle exec fastlane sync_apple_signing
+```
+
+The release lanes require the same environment values as GitHub Actions. The
+signing synchronization lane is intentionally write-enabled and should only be
+run from a trusted Mac when certificates or profiles need to be created or
+renewed.
 
 ## Publishing a version
 
@@ -91,7 +148,8 @@ provisioning profiles through the App Store Connect API using automatic signing.
    git push origin v1.0.0
    ```
 
-5. Monitor **Actions → Publish store builds**.
+5. Monitor **Actions → Publish store builds**. The workflow runs
+   `fastlane android internal` and `fastlane apple_beta`.
 6. Test Android through the internal track and Apple through TestFlight.
 7. Promote the validated build and submit the completed Store listing for
    review.
