@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4640" height="1440" viewBox="0 0 4640 1440">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="4640" y2="1440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1B1024"/>
+      <stop offset="0.52" stop-color="#0D0913"/>
+      <stop offset="1" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="1700" y1="355" x2="1700" y2="1085" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF3F9A"/>
+      <stop offset="0.52" stop-color="#8E3FFF"/>
+      <stop offset="1" stop-color="#00F2FE"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(1840 720) rotate(90) scale(1050 1700)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8E3FFF" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#8E3FFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="4640" height="1440" fill="url(#background)"/>
+  <rect width="4640" height="1440" fill="url(#glow)"/>
+  <circle cx="1700" cy="720" r="365" fill="url(#brand)"/>
+  <path d="M1792 493C1710 423 1542 442 1542 555C1542 676 1837 602 1837 772C1837 913 1615 941 1517 850"
+        fill="none" stroke="#FFFFFF" stroke-width="98" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="2170" y="820" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, Arial, sans-serif"
+        font-size="242" font-weight="700" letter-spacing="-10">SeerrPlay</text>
+</svg>

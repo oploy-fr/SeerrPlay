@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#08070D</color>
+    <color name="cast_dialog_primary">#8E3FFF</color>
+</resources>

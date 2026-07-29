@@ -1,0 +1,67 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Flutter checks and Android bundle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/seerrplay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.7
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build appbundle --release
+
+  apple:
+    name: Apple release builds
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.7
+          channel: stable
+          cache: true
+      - name: Build iOS without code signing
+        working-directory: apps/seerrplay
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign
+      - name: Build tvOS without code signing
+        working-directory: apps/seerrplay_tvos
+        run: |
+          xcodebuild \
+            -project SeerrPlayTV.xcodeproj \
+            -scheme SeerrPlayTV \
+            -configuration Release \
+            -destination "generic/platform=tvOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
