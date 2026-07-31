@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/desktop_hover_scale.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 
 class MediaPosterCard extends StatelessWidget {
@@ -22,75 +23,78 @@ class MediaPosterCard extends StatelessWidget {
     final progress = (media.downloadProgress ?? media.progress)
         ?.clamp(0.0, 1.0)
         .toDouble();
-    return SizedBox(
-      width: width,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _PosterImage(url: media.posterUrl),
-                    if (media.statusLabel != null)
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        right: 8,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: MediaStatusBadge(media: media),
+    return DesktopHoverScale(
+      child: SizedBox(
+        width: width,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _PosterImage(url: media.posterUrl),
+                      if (media.statusLabel != null)
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          right: 8,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: MediaStatusBadge(media: media),
+                          ),
                         ),
-                      ),
-                    if (progress != null && progress > 0)
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 5,
-                          backgroundColor: Colors.black54,
-                          color: AppColors.violet,
+                      if (progress != null && progress > 0)
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 5,
+                            backgroundColor: Colors.black54,
+                            color: AppColors.violet,
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            if (showDetails)
-              Padding(
-                padding: const EdgeInsets.only(top: 9, left: 2, right: 2),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      media.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AppColors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (media.subtitle != null) ...[
-                      const SizedBox(height: 3),
+              if (showDetails)
+                Padding(
+                  padding: const EdgeInsets.only(top: 9, left: 2, right: 2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        media.subtitle!,
+                        media.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.white.withValues(alpha: 0.46),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: AppColors.white,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (media.subtitle != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          media.subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: AppColors.white.withValues(alpha: 0.46),
+                              ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

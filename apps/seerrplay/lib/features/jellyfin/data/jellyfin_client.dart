@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
 import 'package:seerrplay/features/media_server/data/media_server_client.dart';
 import 'package:seerrplay/features/profiles/domain/connection_profile.dart';
@@ -639,17 +640,29 @@ Map<String, Object> _nativeVideoProfile(int maxStreamingBitrate) => {
     },
   ],
   'TranscodingProfiles': [
-    {
-      'Container': 'ts',
-      'Type': 'Video',
-      'Protocol': 'hls',
-      'AudioCodec': 'aac',
-      'VideoCodec': 'h264',
-      'Context': 'Streaming',
-      'MaxAudioChannels': '6',
-      'MinSegments': 2,
-      'BreakOnNonKeyFrames': true,
-    },
+    defaultTargetPlatform == TargetPlatform.windows
+        ? {
+            // Windows Media Foundation plays progressive MP4 reliably, while
+            // the desktop video backend does not currently support HLS.
+            'Container': 'mp4',
+            'Type': 'Video',
+            'Protocol': 'http',
+            'AudioCodec': 'aac',
+            'VideoCodec': 'h264',
+            'Context': 'Streaming',
+            'MaxAudioChannels': '6',
+          }
+        : {
+            'Container': 'ts',
+            'Type': 'Video',
+            'Protocol': 'hls',
+            'AudioCodec': 'aac',
+            'VideoCodec': 'h264',
+            'Context': 'Streaming',
+            'MaxAudioChannels': '6',
+            'MinSegments': 2,
+            'BreakOnNonKeyFrames': true,
+          },
   ],
   'SubtitleProfiles': [
     {'Format': 'vtt', 'Method': 'Encode'},

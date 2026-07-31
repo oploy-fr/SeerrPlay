@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/downloads/application/downloads_controller.dart';
 import 'package:seerrplay/features/downloads/domain/offline_download.dart';
 import 'package:seerrplay/features/auth/application/app_session_controller.dart';
@@ -15,7 +16,7 @@ class DownloadsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final downloads = ref.watch(downloadsControllerProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr('Downloads'))),
+      appBar: AppPageAppBar(title: Text(context.tr('Downloads'))),
       body: downloads.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
@@ -47,7 +48,12 @@ class DownloadsScreen extends ConsumerWidget {
                 (total, download) => total + download.downloadedBytes,
               );
           return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 118),
+            padding: EdgeInsets.fromLTRB(
+              AppPageLayout.horizontalInset(context),
+              10,
+              AppPageLayout.horizontalInset(context),
+              118,
+            ),
             itemCount: items.length + 1,
             separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {

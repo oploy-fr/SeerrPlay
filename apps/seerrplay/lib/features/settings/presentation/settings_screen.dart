@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:seerrplay/core/config/app_links.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/localization/locale_controller.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/notifications/application/request_notification_service.dart';
 import 'package:seerrplay/features/profiles/domain/connection_profile.dart';
 import 'package:seerrplay/features/profiles/presentation/profile_avatar.dart';
@@ -40,7 +42,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr('Settings'))),
+      appBar: AppPageAppBar(title: Text(context.tr('Settings'))),
       body: SafeArea(
         top: false,
         child: LayoutBuilder(
@@ -48,9 +50,9 @@ class SettingsScreen extends StatelessWidget {
             final wide = constraints.maxWidth >= 900;
             return SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
-                wide ? 36 : 20,
+                wide ? AppPageLayout.horizontalInset(context, compact: 20) : 20,
                 14,
-                wide ? 36 : 20,
+                wide ? AppPageLayout.horizontalInset(context, compact: 20) : 20,
                 128,
               ),
               child: Center(
@@ -286,7 +288,7 @@ class _PreferencesSection extends StatelessWidget {
       child: _SettingsRows(
         children: [
           const _LanguageRow(),
-          const _NotificationsRow(),
+          if (supportsBackgroundRequestPolling) const _NotificationsRow(),
           _ChildModeRow(
             profile: activeProfile,
             onChanged: onContentRestrictionsChanged,

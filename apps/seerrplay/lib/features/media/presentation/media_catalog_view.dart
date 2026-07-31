@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_poster_card.dart';
@@ -104,14 +106,21 @@ class _MediaCatalogViewState extends State<MediaCatalogView> {
   @override
   Widget build(BuildContext context) {
     final items = _visibleItems;
+    final desktop =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
     final grid = GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(16, 14, 16, widget.bottomPadding),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 148,
+      padding: EdgeInsets.fromLTRB(
+        AppPageLayout.horizontalInset(context),
+        desktop ? 24 : 14,
+        AppPageLayout.horizontalInset(context),
+        widget.bottomPadding,
+      ),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: desktop ? 190 : 148,
         childAspectRatio: 2 / 3,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 12,
+        crossAxisSpacing: desktop ? 20 : 10,
+        mainAxisSpacing: desktop ? 22 : 12,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => MediaPosterCard(
@@ -123,7 +132,12 @@ class _MediaCatalogViewState extends State<MediaCatalogView> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          padding: EdgeInsets.fromLTRB(
+            AppPageLayout.horizontalInset(context),
+            desktop ? 20 : 8,
+            AppPageLayout.horizontalInset(context),
+            0,
+          ),
           child: Column(
             children: [
               if (widget.showSearch) ...[

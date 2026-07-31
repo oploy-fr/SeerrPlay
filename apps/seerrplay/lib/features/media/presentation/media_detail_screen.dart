@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/localization/locale_controller.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
 import 'package:seerrplay/features/downloads/application/downloads_controller.dart';
@@ -504,11 +505,13 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
             _markedWatched ??
             content.episodeContext?.episode.userData?.played ??
             false;
+        final desktop =
+            isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
         return Scaffold(
           body: CustomScrollView(
             slivers: [
               SliverAppBar(
-                expandedHeight: 380,
+                expandedHeight: desktop ? 560 : 380,
                 pinned: true,
                 backgroundColor: AppColors.background,
                 surfaceTintColor: Colors.transparent,
@@ -547,9 +550,16 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
               SliverToBoxAdapter(
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1100),
+                    constraints: BoxConstraints(
+                      maxWidth: desktop ? 1360 : 1100,
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 50),
+                      padding: EdgeInsets.fromLTRB(
+                        desktop ? 52 : 24,
+                        desktop ? 36 : 24,
+                        desktop ? 52 : 24,
+                        desktop ? 80 : 50,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -960,6 +970,8 @@ class _DetailHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final releaseDate = details?.theatricalReleaseFor(region);
     final certification = details?.certificationFor(region);
+    final desktop =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
     return LayoutBuilder(
       builder: (context, constraints) {
         final expanded = constraints.maxHeight > 220;
@@ -1019,9 +1031,9 @@ class _DetailHero extends StatelessWidget {
               )
             else
               Positioned(
-                left: 24,
-                right: 24,
-                bottom: 20,
+                left: desktop ? 64 : 24,
+                right: desktop ? MediaQuery.sizeOf(context).width * 0.32 : 24,
+                bottom: desktop ? 44 : 20,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1039,17 +1051,20 @@ class _DetailHero extends StatelessWidget {
                       title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineMedium
-                          ?.copyWith(
-                            color: AppColors.white,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1,
-                            height: 1.05,
-                          ),
+                      style:
+                          (desktop
+                                  ? Theme.of(context).textTheme.displayMedium
+                                  : Theme.of(context).textTheme.headlineMedium)
+                              ?.copyWith(
+                                color: AppColors.white,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -1,
+                                height: 1.05,
+                              ),
                     ),
                     if (media.kind == MediaKind.episode &&
                         media.subtitle?.isNotEmpty == true) ...[
-                      const SizedBox(height: 7),
+                      SizedBox(height: desktop ? 12 : 7),
                       Text(
                         media.subtitle!,
                         maxLines: 1,
@@ -1060,7 +1075,7 @@ class _DetailHero extends StatelessWidget {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 11),
+                    SizedBox(height: desktop ? 18 : 11),
                     Wrap(
                       spacing: 14,
                       runSpacing: 8,

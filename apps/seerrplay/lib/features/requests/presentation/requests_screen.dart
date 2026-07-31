@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/home/application/home_controller.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_catalog_view.dart';
@@ -13,7 +14,7 @@ class RequestsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final requests = ref.watch(userRequestsProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr('Unwatched requests'))),
+      appBar: AppPageAppBar(title: Text(context.tr('Unwatched requests'))),
       body: requests.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => ListView(

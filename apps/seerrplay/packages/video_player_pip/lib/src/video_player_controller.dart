@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player_android/video_player_android.dart';
 import 'package:video_player_avfoundation/video_player_avfoundation.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
+import 'package:video_player_win/video_player_win_plugin.dart';
 
 import 'src/closed_caption_file.dart';
 
@@ -34,8 +35,10 @@ void _initializeVideoPlayerPlatforms() {
     // Only register the platform implementation for the current platform
     if (Platform.isAndroid) {
       AndroidVideoPlayer.registerWith();
-    } else if (Platform.isIOS) {
+    } else if (Platform.isIOS || Platform.isMacOS) {
       AVFoundationVideoPlayer.registerWith();
+    } else if (Platform.isWindows) {
+      WindowsVideoPlayer.registerWith();
     }
     // Web implementation is registered automatically
     _platformsInitialized = true;

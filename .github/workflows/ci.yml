@@ -55,6 +55,16 @@ jobs:
         run: |
           flutter pub get
           flutter build ios --release --no-codesign
+      - name: Build macOS
+        working-directory: apps/seerrplay
+        run: |
+          flutter build macos --config-only
+          xcodebuild \
+            -workspace macos/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            build
       - name: Build tvOS without code signing
         working-directory: apps/seerrplay_tvos
         run: |
@@ -65,3 +75,19 @@ jobs:
             -destination "generic/platform=tvOS" \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+  windows:
+    name: Windows release build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/seerrplay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.7
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release

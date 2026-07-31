@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/home/application/home_controller.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_catalog_view.dart';
@@ -45,12 +46,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Widget build(BuildContext context) {
     final results = ref.watch(searchResultsProvider(_query));
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr('Search Seerr'))),
+      appBar: AppPageAppBar(title: Text(context.tr('Search Seerr'))),
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              padding: EdgeInsets.fromLTRB(
+                AppPageLayout.horizontalInset(context),
+                8,
+                AppPageLayout.horizontalInset(context),
+                10,
+              ),
               child: TextField(
                 controller: _controller,
                 textInputAction: TextInputAction.search,

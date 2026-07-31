@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/app/presentation/app_navigation_bar.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/core/widgets/seerr_brand_logo.dart';
 import 'package:seerrplay/features/auth/application/app_session_controller.dart';
@@ -71,37 +72,63 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         },
       ),
     ];
-
-    return Scaffold(
-      extendBody: true,
-      body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: AppNavigationBar(
-        selectedIndex: _index,
-        onSelected: (index) => setState(() => _index = index),
-        destinations: [
-          AppNavigationDestination(
-            icon: Icons.home_outlined,
-            label: context.tr('Home navigation'),
-          ),
-          AppNavigationDestination(
-            icon: Icons.search_outlined,
-            label: context.tr('Search'),
-          ),
-          AppNavigationDestination(
-            icon: Icons.inbox_outlined,
-            label: context.tr('Requests'),
-            badge: requestCount,
-          ),
-          AppNavigationDestination(
-            icon: Icons.download_for_offline_outlined,
-            label: context.tr('Downloads'),
-          ),
-          AppNavigationDestination(
-            icon: Icons.settings_outlined,
-            label: context.tr('Settings'),
-          ),
-        ],
+    final destinations = [
+      AppNavigationDestination(
+        icon: Icons.home_outlined,
+        label: context.tr('Home navigation'),
       ),
+      AppNavigationDestination(
+        icon: Icons.search_outlined,
+        label: context.tr('Search'),
+      ),
+      AppNavigationDestination(
+        icon: Icons.inbox_outlined,
+        label: context.tr('Requests'),
+        badge: requestCount,
+      ),
+      AppNavigationDestination(
+        icon: Icons.download_for_offline_outlined,
+        label: context.tr('Downloads'),
+      ),
+      AppNavigationDestination(
+        icon: Icons.settings_outlined,
+        label: context.tr('Settings'),
+      ),
+    ];
+    final content = IndexedStack(index: _index, children: pages);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 900) {
+          return Scaffold(
+            extendBody: true,
+            body: content,
+            bottomNavigationBar: AppNavigationBar(
+              selectedIndex: _index,
+              onSelected: (index) => setState(() => _index = index),
+              destinations: destinations,
+            ),
+          );
+        }
+        return Scaffold(
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                _DesktopTopNavigation(
+                  selectedIndex: _index,
+                  destinations: destinations,
+                  profileName: activeProfile.name,
+                  profileAvatarIndex: activeProfile.avatarIndex,
+                  onSelected: (index) => setState(() => _index = index),
+                  onProfileSelected: _chooseProfile,
+                ),
+                Expanded(child: content),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -115,11 +142,195 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Future<void> _chooseProfile() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (pickerContext) => ProfileSelectionScreen(
+          showBackButton: true,
+          onProfileSelected: (profileId) => Navigator.of(pickerContext).pop(),
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteProfile(String profileId) async {
     await ref.read(credentialStoreProvider).deleteProfile(profileId);
     await ref
         .read(profilesControllerProvider.notifier)
         .deleteProfile(profileId);
+  }
+}
+
+class _DesktopTopNavigation extends StatelessWidget {
+  const _DesktopTopNavigation({
+    required this.selectedIndex,
+    required this.destinations,
+    required this.profileName,
+    required this.profileAvatarIndex,
+    required this.onSelected,
+    required this.onProfileSelected,
+  });
+
+  final int selectedIndex;
+  final List<AppNavigationDestination> destinations;
+  final String profileName;
+  final int profileAvatarIndex;
+  final ValueChanged<int> onSelected;
+  final VoidCallback onProfileSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: SeerrBrandLogo(compact: true),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Row(
+              children: [
+                for (var index = 0; index < destinations.length; index++)
+                  Expanded(
+                    child: _DesktopNavigationButton(
+                      destination: destinations[index],
+                      selected: selectedIndex == index,
+                      onTap: () => onSelected(index),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _DesktopProfileButton(
+              name: profileName,
+              avatarIndex: profileAvatarIndex,
+              onTap: onProfileSelected,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopNavigationButton extends StatelessWidget {
+  const _DesktopNavigationButton({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppNavigationDestination destination;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? Colors.white : Colors.white60;
+    final icon = Icon(destination.icon, size: 20, color: foreground);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        hoverColor: Colors.white.withValues(alpha: 0.04),
+        highlightColor: Colors.white.withValues(alpha: 0.04),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              destination.badge > 0
+                  ? Badge.count(
+                      count: destination.badge,
+                      backgroundColor: AppColors.magenta,
+                      child: icon,
+                    )
+                  : icon,
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  destination.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: foreground,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    letterSpacing: 0.15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopProfileButton extends StatelessWidget {
+  const _DesktopProfileButton({
+    required this.name,
+    required this.avatarIndex,
+    required this.onTap,
+  });
+
+  final String name;
+  final int avatarIndex;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: context.tr('Switch profile'),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ProfileAvatar(avatarIndex: avatarIndex, size: 36),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AppColors.white,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Colors.white54,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -148,37 +359,42 @@ class _HomeDashboard extends ConsumerWidget {
     final session = ref.watch(appSessionControllerProvider).requireValue;
     final content = ref.watch(homeContentProvider);
     final availableRequests = ref.watch(availableUnwatchedRequestsProvider);
+    final desktop =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final sectionSpacing = desktop ? 44.0 : 30.0;
     return Scaffold(
-      appBar: AppBar(
-        title: const SeerrBrandLogo(compact: true),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: Tooltip(
-              message: context.tr('Switch profile'),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () => _chooseProfile(context),
-                child: Row(
-                  children: [
-                    if (MediaQuery.sizeOf(context).width >= 520) ...[
-                      Text(
-                        session.profile!.name,
-                        style: Theme.of(context).textTheme.labelLarge,
+      appBar: desktop
+          ? null
+          : AppBar(
+              title: const SeerrBrandLogo(compact: true),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 14),
+                  child: Tooltip(
+                    message: context.tr('Switch profile'),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () => _chooseProfile(context),
+                      child: Row(
+                        children: [
+                          if (MediaQuery.sizeOf(context).width >= 520) ...[
+                            Text(
+                              session.profile!.name,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          ProfileAvatar(
+                            avatarIndex: session.profile!.avatarIndex,
+                            size: 34,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                    ],
-                    ProfileAvatar(
-                      avatarIndex: session.profile!.avatarIndex,
-                      size: 34,
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ),
-        ],
-      ),
       body: RefreshIndicator(
         onRefresh: () {
           ref.read(seerrClientProvider).clearCache();
@@ -227,15 +443,22 @@ class _HomeDashboard extends ConsumerWidget {
             }
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 118),
+              padding: EdgeInsets.fromLTRB(
+                desktop ? 52 : 20,
+                desktop ? 24 : 12,
+                desktop ? 52 : 20,
+                desktop ? 72 : 118,
+              ),
               children: [
                 _TrendingHeroSlider(
                   items: data.trending,
                   onSelected: (media) => _open(context, media),
                 ),
-                if (data.trending.isNotEmpty) const SizedBox(height: 24),
+                if (data.trending.isNotEmpty)
+                  SizedBox(height: desktop ? 36 : 24),
                 _CategoryButtons(categories: data.categories),
-                if (data.categories.isNotEmpty) const SizedBox(height: 26),
+                if (data.categories.isNotEmpty)
+                  SizedBox(height: desktop ? 40 : 26),
                 MediaRail(
                   title: context.tr('Continue watching'),
                   items: data.continueWatching,
@@ -243,7 +466,7 @@ class _HomeDashboard extends ConsumerWidget {
                   onSelected: (media) => _open(context, media),
                 ),
                 if (data.continueWatching.isNotEmpty)
-                  const SizedBox(height: 30),
+                  SizedBox(height: sectionSpacing),
                 availableRequests.when(
                   loading: () => const SizedBox.shrink(),
                   error: (error, stackTrace) => const SizedBox.shrink(),
@@ -254,19 +477,21 @@ class _HomeDashboard extends ConsumerWidget {
                   ),
                 ),
                 if (availableRequests.value?.isNotEmpty == true)
-                  const SizedBox(height: 30),
+                  SizedBox(height: sectionSpacing),
                 MediaRail(
                   title: context.tr('Popular movies'),
                   items: data.popularMovies,
                   onSelected: (media) => _open(context, media),
                 ),
-                if (data.popularMovies.isNotEmpty) const SizedBox(height: 30),
+                if (data.popularMovies.isNotEmpty)
+                  SizedBox(height: sectionSpacing),
                 MediaRail(
                   title: context.tr('Popular series'),
                   items: data.popularSeries,
                   onSelected: (media) => _open(context, media),
                 ),
-                if (data.popularSeries.isNotEmpty) const SizedBox(height: 30),
+                if (data.popularSeries.isNotEmpty)
+                  SizedBox(height: sectionSpacing),
                 _Providers(
                   providers: data.providers,
                   region: data.providerRegion,
@@ -454,8 +679,10 @@ class _CategoryButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (categories.isEmpty) return const SizedBox.shrink();
+    final desktop =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
     return SizedBox(
-      height: 104,
+      height: desktop ? 132 : 104,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
@@ -471,7 +698,7 @@ class _CategoryButtons extends StatelessWidget {
               ),
             ),
             child: Container(
-              width: 166,
+              width: desktop ? 220 : 166,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(18),
                 gradient: LinearGradient(
@@ -593,7 +820,7 @@ class _TrendingHeroSliderState extends State<_TrendingHeroSlider> {
   @override
   void initState() {
     super.initState();
-    _controller = PageController(viewportFraction: 0.94);
+    _controller = PageController();
     _startTimer();
   }
 
@@ -630,7 +857,10 @@ class _TrendingHeroSliderState extends State<_TrendingHeroSlider> {
     final items = widget.items.take(8).toList(growable: false);
     if (items.isEmpty) return const SizedBox.shrink();
     final width = MediaQuery.sizeOf(context).width;
-    final height = width >= 900
+    final desktop = isDesktopPlatform && width >= 1000;
+    final height = desktop
+        ? 500.0
+        : width >= 900
         ? 390.0
         : width >= 600
         ? 320.0
@@ -645,13 +875,10 @@ class _TrendingHeroSliderState extends State<_TrendingHeroSlider> {
             onPageChanged: (page) => setState(() => _page = page),
             itemBuilder: (context, index) {
               final media = items[index];
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: _TrendingHeroCard(
-                  media: media,
-                  rank: index + 1,
-                  onTap: () => widget.onSelected(media),
-                ),
+              return _TrendingHeroCard(
+                media: media,
+                rank: index + 1,
+                onTap: () => widget.onSelected(media),
               );
             },
           ),
@@ -693,11 +920,13 @@ class _TrendingHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final desktop =
+        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
     return InkWell(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(desktop ? 30 : 24),
       onTap: onTap,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(desktop ? 30 : 24),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -735,11 +964,11 @@ class _TrendingHeroCard extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: 20,
-              right: 24,
-              bottom: 20,
+              left: desktop ? 48 : 20,
+              right: desktop ? 48 : 24,
+              bottom: desktop ? 42 : 20,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints: BoxConstraints(maxWidth: desktop ? 760 : 520),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -756,23 +985,27 @@ class _TrendingHeroCard extends StatelessWidget {
                       media.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            color: AppColors.white,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
+                      style:
+                          (desktop
+                                  ? Theme.of(context).textTheme.displaySmall
+                                  : Theme.of(context).textTheme.headlineSmall)
+                              ?.copyWith(
+                                color: AppColors.white,
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                              ),
                     ),
                     if (media.overview?.isNotEmpty == true &&
                         MediaQuery.sizeOf(context).width >= 600) ...[
-                      const SizedBox(height: 10),
+                      SizedBox(height: desktop ? 16 : 10),
                       Text(
                         media.overview!,
-                        maxLines: 2,
+                        maxLines: desktop ? 3 : 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white70,
-                          height: 1.35,
+                          height: 1.4,
+                          fontSize: desktop ? 17 : null,
                         ),
                       ),
                     ],

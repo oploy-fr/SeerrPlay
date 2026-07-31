@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seerrplay/features/jellyfin/data/jellyfin_client.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
@@ -246,6 +246,36 @@ void main() {
     expect(request.uri.queryParameters, isNot(contains('MaxStreamingBitrate')));
     expect(request.data, isNot(contains('MaxStreamingBitrate')));
     expect(request.data['EnableDirectPlay'], isTrue);
+  });
+
+  test('requests progressive MP4 transcoding on Windows', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final adapter = _QueueAdapter([
+      _jsonResponse({
+        'MediaSources': [
+          {'Id': 'source-1'},
+        ],
+      }),
+    ]);
+    final client = _client(adapter)
+      ..restoreSession(
+        const MediaServerSession(
+          accessToken: 'access-token',
+          user: MediaServerUser(id: 'user-1', name: 'Charles'),
+        ),
+      );
+
+    await client.getPlaybackInfo('movie-1', forceTranscoding: true);
+
+    final profile = Map<String, dynamic>.from(
+      adapter.requests.single.data['DeviceProfile'] as Map,
+    );
+    final transcodingProfile = Map<String, dynamic>.from(
+      (profile['TranscodingProfiles'] as List).single as Map,
+    );
+    expect(transcodingProfile['Container'], 'mp4');
+    expect(transcodingProfile['Protocol'], 'http');
   });
 
   test('detects started media so its request can be hidden', () async {

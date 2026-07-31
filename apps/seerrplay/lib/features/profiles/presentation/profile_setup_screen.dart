@@ -364,7 +364,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           key: _formKey,
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
+              constraints: const BoxConstraints(maxWidth: 960),
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 14, 24, 42),
                 children: [
@@ -676,85 +676,104 @@ class _AddressFields extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'https', label: Text('HTTPS')),
-            ButtonSegment(value: 'http', label: Text('HTTP')),
+    final schemeField = SegmentedButton<String>(
+      segments: const [
+        ButtonSegment(value: 'https', label: Text('HTTPS')),
+        ButtonSegment(value: 'http', label: Text('HTTP')),
+      ],
+      selected: {scheme},
+      onSelectionChanged: (values) => onSchemeChanged(values.first),
+      showSelectedIcon: false,
+    );
+    final domainField = TextFormField(
+      controller: domain,
+      keyboardType: TextInputType.url,
+      autocorrect: false,
+      textCapitalization: TextCapitalization.none,
+      decoration: InputDecoration(
+        labelText: context.tr('Domain or IP address'),
+        hintText: domainHint,
+        prefixIcon: const Icon(Icons.dns_outlined),
+      ),
+      validator: domainValidator,
+    );
+    final portField = TextFormField(
+      controller: port,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: context.tr('Custom port (optional)'),
+        hintText: portHint,
+        prefixIcon: const Icon(Icons.settings_ethernet_rounded),
+      ),
+      validator: portValidator,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (constraints.maxWidth >= 760)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 190, child: schemeField),
+                const SizedBox(width: 14),
+                Expanded(child: domainField),
+                const SizedBox(width: 14),
+                SizedBox(width: 220, child: portField),
+              ],
+            )
+          else ...[
+            schemeField,
+            const SizedBox(height: 14),
+            domainField,
+            const SizedBox(height: 12),
+            portField,
           ],
-          selected: {scheme},
-          onSelectionChanged: (values) => onSchemeChanged(values.first),
-          showSelectedIcon: false,
-        ),
-        if (scheme == 'http') ...[
-          const SizedBox(height: 12),
-          Semantics(
-            liveRegion: true,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.errorContainer.withValues(alpha: 0.35),
-                border: Border.all(
+          if (scheme == 'http') ...[
+            const SizedBox(height: 12),
+            Semantics(
+              liveRegion: true,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
                   color: Theme.of(
                     context,
-                  ).colorScheme.error.withValues(alpha: 0.45),
+                  ).colorScheme.errorContainer.withValues(alpha: 0.35),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.error.withValues(alpha: 0.45),
+                  ),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        context.tr(
-                          'HTTP does not encrypt your credentials. Use it only for a trusted local network; HTTPS is recommended.',
-                        ),
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(height: 1.35),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Theme.of(context).colorScheme.error,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          context.tr(
+                            'HTTP does not encrypt your credentials. Use it only for a trusted local network; HTTPS is recommended.',
+                          ),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
-        const SizedBox(height: 14),
-        TextFormField(
-          controller: domain,
-          keyboardType: TextInputType.url,
-          autocorrect: false,
-          textCapitalization: TextCapitalization.none,
-          decoration: InputDecoration(
-            labelText: context.tr('Domain or IP address'),
-            hintText: domainHint,
-            prefixIcon: const Icon(Icons.dns_outlined),
-          ),
-          validator: domainValidator,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: port,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: context.tr('Custom port (optional)'),
-            hintText: portHint,
-            prefixIcon: const Icon(Icons.settings_ethernet_rounded),
-          ),
-          validator: portValidator,
-        ),
-      ],
+      ),
     );
   }
 }

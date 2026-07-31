@@ -523,6 +523,8 @@ const _translations = <String, Map<String, String>>{
     'Use the AirPlay button to change or stop playback on the TV.':
         'Utilisez le bouton AirPlay pour changer de téléviseur ou arrêter la diffusion.',
     'Playback settings': 'Paramètres de lecture',
+    'Enter full screen': 'Passer en plein écran',
+    'Exit full screen': 'Quitter le plein écran',
     'Pause': 'Pause',
     'Play state': 'Lecture',
     'Rewind 10 seconds': 'Reculer de 10 secondes',
@@ -1060,6 +1062,8 @@ const _translations = <String, Map<String, String>>{
     'Use the AirPlay button to change or stop playback on the TV.':
         'Use the AirPlay button to change or stop playback on the TV.',
     'Playback settings': 'Playback settings',
+    'Enter full screen': 'Enter full screen',
+    'Exit full screen': 'Exit full screen',
     'Pause': 'Pause',
     'Play state': 'Play',
     'Rewind 10 seconds': 'Rewind 10 seconds',
@@ -1602,6 +1606,8 @@ const _translations = <String, Map<String, String>>{
     'Use the AirPlay button to change or stop playback on the TV.':
         'Usa el botón AirPlay para cambiar de televisor o detener la reproducción.',
     'Playback settings': 'Ajustes de reproducción',
+    'Enter full screen': 'Entrar en pantalla completa',
+    'Exit full screen': 'Salir de pantalla completa',
     'Pause': 'Pausa',
     'Play state': 'Reproducir',
     'Rewind 10 seconds': 'Retroceder 10 segundos',
@@ -2147,6 +2153,8 @@ const _translations = <String, Map<String, String>>{
     'Use the AirPlay button to change or stop playback on the TV.':
         'Usa il pulsante AirPlay per cambiare TV o interrompere la riproduzione.',
     'Playback settings': 'Impostazioni di riproduzione',
+    'Enter full screen': 'Passa a schermo intero',
+    'Exit full screen': 'Esci da schermo intero',
     'Pause': 'Pausa',
     'Play state': 'Riproduci',
     'Rewind 10 seconds': 'Indietro di 10 secondi',
@@ -2702,6 +2710,8 @@ const _translations = <String, Map<String, String>>{
     'Use the AirPlay button to change or stop playback on the TV.':
         'Verwende die AirPlay-Taste, um den Fernseher zu wechseln oder die Wiedergabe zu beenden.',
     'Playback settings': 'Wiedergabeeinstellungen',
+    'Enter full screen': 'Vollbildmodus aktivieren',
+    'Exit full screen': 'Vollbildmodus beenden',
     'Pause': 'Pause',
     'Play state': 'Abspielen',
     'Rewind 10 seconds': '10 Sekunden zurück',

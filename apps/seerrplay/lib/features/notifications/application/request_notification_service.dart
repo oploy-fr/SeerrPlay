@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/localization/locale_controller.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/features/profiles/data/credential_store.dart';
 import 'package:seerrplay/features/profiles/data/profile_repository.dart';
 import 'package:seerrplay/features/profiles/domain/connection_profile.dart';
@@ -65,6 +66,7 @@ class RequestNotificationService {
   static bool _notificationsInitialized = false;
 
   static Future<void> initialize() async {
+    if (!supportsBackgroundRequestPolling) return;
     await Workmanager().initialize(requestNotificationCallbackDispatcher);
     await initializeNotifications();
     await scheduleIfEnabled();
@@ -86,11 +88,13 @@ class RequestNotificationService {
   }
 
   static Future<bool> isEnabled() async {
+    if (!supportsBackgroundRequestPolling) return false;
     final preferences = await SharedPreferences.getInstance();
     return preferences.getBool(_enabledKey) ?? false;
   }
 
   static Future<bool> setEnabled(bool enabled) async {
+    if (!supportsBackgroundRequestPolling) return false;
     await initializeNotifications();
     if (enabled && !await _requestPermission()) return false;
 
@@ -109,10 +113,12 @@ class RequestNotificationService {
   }
 
   static Future<void> scheduleIfEnabled() async {
+    if (!supportsBackgroundRequestPolling) return;
     if (await isEnabled()) await _registerPeriodicTask();
   }
 
   static Future<void> checkWhenAppResumes() async {
+    if (!supportsBackgroundRequestPolling) return;
     if (!await isEnabled()) return;
     try {
       await checkForChanges();

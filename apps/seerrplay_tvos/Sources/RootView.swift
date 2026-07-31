@@ -41,8 +41,15 @@ private struct MainTabView: View {
                 .tabItem { Label("Library", systemImage: "play.rectangle.on.rectangle") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
+            ProfileSelectionView()
+                .tabItem {
+                    Label(
+                        app.activeProfile?.name ?? "Profile",
+                        systemImage: "person.crop.circle"
+                    )
+                }
         }
-        .tint(SeerrPlayTheme.violet)
+        .tint(SeerrPlayTheme.magenta)
         .environmentObject(app)
     }
 }

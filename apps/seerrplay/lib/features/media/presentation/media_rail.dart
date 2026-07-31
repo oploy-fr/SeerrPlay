@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:seerrplay/core/platform/platform_capabilities.dart';
+import 'package:seerrplay/core/widgets/desktop_hover_scale.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_poster_card.dart';
 
@@ -19,12 +21,18 @@ class MediaRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
-    final isTv = MediaQuery.sizeOf(context).width >= 900;
+    final width = MediaQuery.sizeOf(context).width;
+    final desktop = isDesktopPlatform && width >= 1000;
+    final isWide = width >= 900;
     final cardWidth = landscape
-        ? isTv
+        ? desktop
+              ? 370.0
+              : isWide
               ? 320.0
               : 224.0
-        : isTv
+        : desktop
+        ? 200.0
+        : isWide
         ? 156.0
         : 112.0;
     final railHeight = landscape ? cardWidth * 9 / 16 + 50 : cardWidth * 1.5;
@@ -34,17 +42,20 @@ class MediaRail extends StatelessWidget {
       children: [
         Text(
           title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          style:
+              (desktop
+                      ? Theme.of(context).textTheme.headlineSmall
+                      : Theme.of(context).textTheme.titleLarge)
+                  ?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 14),
+        SizedBox(height: desktop ? 20 : 14),
         SizedBox(
           height: railHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
-            separatorBuilder: (context, index) => const SizedBox(width: 14),
+            separatorBuilder: (context, index) =>
+                SizedBox(width: desktop ? 22 : 14),
             itemBuilder: (context, index) {
               final media = items[index];
               if (landscape) {
@@ -83,89 +94,94 @@ class _ContinueWatchingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final progress = media.progress?.clamp(0.0, 1.0).toDouble();
     final imageUrl = media.backdropUrl ?? media.posterUrl;
-    return SizedBox(
-      width: width,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (imageUrl != null)
-                      Image.network(
-                        imageUrl.toString(),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const _LandscapeFallback(),
-                      )
-                    else
-                      const _LandscapeFallback(),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Color(0xB308070D)],
-                          stops: [0.55, 1],
-                        ),
-                      ),
-                    ),
-                    const Center(
-                      child: DecoratedBox(
+    return DesktopHoverScale(
+      child: SizedBox(
+        width: width,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          hoverColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (imageUrl != null)
+                        Image.network(
+                          imageUrl.toString(),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const _LandscapeFallback(),
+                        )
+                      else
+                        const _LandscapeFallback(),
+                      const DecoratedBox(
                         decoration: BoxDecoration(
-                          color: Color(0xA608070D),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Padding(
-                          padding: EdgeInsets.all(9),
-                          child: Icon(
-                            Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 26,
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Color(0xB308070D)],
+                            stops: [0.55, 1],
                           ),
                         ),
                       ),
-                    ),
-                    if (progress != null && progress > 0)
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 4,
-                          backgroundColor: Colors.white24,
-                          color: Colors.white,
+                      const Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(0xA608070D),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.all(9),
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
                         ),
                       ),
-                  ],
+                      if (progress != null && progress > 0)
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 4,
+                            backgroundColor: Colors.white24,
+                            color: Colors.white,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              media.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            if (media.subtitle?.isNotEmpty == true)
+              const SizedBox(height: 8),
               Text(
-                media.subtitle!,
+                media.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(
                   context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
               ),
-          ],
+              if (media.subtitle?.isNotEmpty == true)
+                Text(
+                  media.subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+                ),
+            ],
+          ),
         ),
       ),
     );
