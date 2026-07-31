@@ -38,6 +38,35 @@ class MethodChannelVideoPlayerPip extends VideoPlayerPipPlatform {
   }
 
   @override
+  Future<bool> prepareAutomaticPip(
+    int playerId, {
+    int? width,
+    int? height,
+  }) async {
+    try {
+      final result = await methodChannel
+          .invokeMethod<bool>('prepareAutomaticPip', {
+            'playerId': playerId,
+            if (width != null) 'width': width,
+            if (height != null) 'height': height,
+          });
+      return result ?? false;
+    } on PlatformException catch (e) {
+      debugPrint('Error preparing automatic PiP: ${e.message}');
+      return false;
+    }
+  }
+
+  @override
+  Future<void> disableAutomaticPip() async {
+    try {
+      await methodChannel.invokeMethod<void>('disableAutomaticPip');
+    } on PlatformException catch (e) {
+      debugPrint('Error disabling automatic PiP: ${e.message}');
+    }
+  }
+
+  @override
   Future<bool> exitPipMode() async {
     try {
       final result = await methodChannel.invokeMethod<bool>('exitPipMode');

@@ -61,5 +61,24 @@ void main() {
 
       expect(profile.avatarIndex, inInclusiveRange(0, 7));
     });
+
+    test('persists child restrictions', () {
+      final profile = ConnectionProfile(
+        id: 'children',
+        name: 'Children',
+        seerrBaseUrl: Uri.parse('https://seerr.example.test'),
+        mediaServerBaseUrl: Uri.parse('https://media.example.test'),
+        mediaServerType: MediaServerType.jellyfin,
+        childMode: true,
+        maximumContentAge: 9,
+      );
+
+      final decoded = ConnectionProfile.decodeList(
+        ConnectionProfile.encodeList([profile]),
+      ).single;
+
+      expect(decoded.childMode, isTrue);
+      expect(decoded.maximumContentAge, 9);
+    });
   });
 }

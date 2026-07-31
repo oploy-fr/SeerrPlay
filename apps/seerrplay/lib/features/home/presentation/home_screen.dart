@@ -60,6 +60,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         onReconnect: () =>
             ref.read(appSessionControllerProvider.notifier).disconnect(),
         onDeleteProfile: () => _deleteProfile(activeProfile.id),
+        onContentRestrictionsChanged: (enabled, maximumAge) {
+          ref
+              .read(profilesControllerProvider.notifier)
+              .updateContentRestrictions(
+                profileId: activeProfile.id,
+                childMode: enabled,
+                maximumContentAge: maximumAge,
+              );
+        },
       ),
     ];
 

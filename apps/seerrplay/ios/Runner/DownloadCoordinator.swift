@@ -9,6 +9,13 @@ final class DownloadCoordinator: NSObject {
   private var eventSink: FlutterEventSink?
   private var backgroundCompletionHandler: (() -> Void)?
   private var lastActivityPercentage: [String: Int] = [:]
+  private var transferSamples: [String: TransferSample] = [:]
+
+  private struct TransferSample {
+    let downloadedBytes: Int64
+    let updatedAt: Date
+    let bytesPerSecond: Double
+  }
 
   private lazy var session: URLSession = {
     let configuration = URLSessionConfiguration.background(
@@ -75,7 +82,8 @@ final class DownloadCoordinator: NSObject {
       let urlValue = arguments["url"] as? String,
       let url = URL(string: urlValue),
       let destinationPath = arguments["destinationPath"] as? String,
-      let title = arguments["title"] as? String
+      let title = arguments["title"] as? String,
+      let estimatedBytes = (arguments["estimatedBytes"] as? NSNumber)?.int64Value
     else {
       result(FlutterError(code: "invalid_download", message: nil, details: nil))
       return
@@ -92,16 +100,18 @@ final class DownloadCoordinator: NSObject {
       "id": id,
       "destinationPath": destinationPath,
       "title": title,
+      "estimatedBytes": String(estimatedBytes),
     ])
     saveStatus(
       id: id,
       status: "downloading",
       progress: 0,
       downloadedBytes: 0,
-      totalBytes: 0,
+      totalBytes: estimatedBytes,
+      estimatedRemainingSeconds: nil,
       error: nil
     )
-    startActivity(id: id, title: title)
+    startActivity(id: id, title: title, estimatedBytes: estimatedBytes)
     task.resume()
     result(nil)
   }
@@ -144,6 +154,8 @@ final class DownloadCoordinator: NSObject {
     progress: Double,
     downloadedBytes: Int64,
     totalBytes: Int64,
+    estimatedRemainingSeconds: Int? = nil,
+    bytesPerSecond: Double = 0,
     error: String?
   ) {
     var allStatuses = statuses()
@@ -153,7 +165,11 @@ final class DownloadCoordinator: NSObject {
       "progress": progress,
       "downloadedBytes": downloadedBytes,
       "totalBytes": totalBytes,
+      "bytesPerSecond": bytesPerSecond,
     ]
+    if let estimatedRemainingSeconds {
+      value["estimatedRemainingSeconds"] = estimatedRemainingSeconds
+    }
     if let error {
       value["error"] = error
     }
@@ -164,7 +180,7 @@ final class DownloadCoordinator: NSObject {
     }
   }
 
-  private func startActivity(id: String, title: String) {
+  private func startActivity(id: String, title: String, estimatedBytes: Int64) {
     guard #available(iOS 16.1, *), ActivityAuthorizationInfo().areActivitiesEnabled else {
       return
     }
@@ -174,7 +190,8 @@ final class DownloadCoordinator: NSObject {
       status: "Downloading",
       progress: 0,
       downloadedBytes: 0,
-      totalBytes: 0
+      totalBytes: estimatedBytes,
+      estimatedRemainingSeconds: nil
     )
     _ = try? Activity.request(
       attributes: attributes,
@@ -188,7 +205,8 @@ final class DownloadCoordinator: NSObject {
     title: String,
     progress: Double,
     downloadedBytes: Int64,
-    totalBytes: Int64
+    totalBytes: Int64,
+    estimatedRemainingSeconds: Int?
   ) {
     guard #available(iOS 16.1, *) else { return }
     let percentage = Int((progress * 100).rounded())
@@ -199,7 +217,8 @@ final class DownloadCoordinator: NSObject {
       status: "Downloading",
       progress: progress,
       downloadedBytes: downloadedBytes,
-      totalBytes: totalBytes
+      totalBytes: totalBytes,
+      estimatedRemainingSeconds: estimatedRemainingSeconds
     )
     for activity in Activity<DownloadActivityAttributes>.activities
     where activity.attributes.downloadId == id {
@@ -217,12 +236,14 @@ final class DownloadCoordinator: NSObject {
   ) {
     guard #available(iOS 16.1, *) else { return }
     lastActivityPercentage.removeValue(forKey: id)
+    transferSamples.removeValue(forKey: id)
     let state = DownloadActivityAttributes.ContentState(
       title: title,
       status: status,
       progress: progress,
       downloadedBytes: 0,
-      totalBytes: 0
+      totalBytes: 0,
+      estimatedRemainingSeconds: nil
     )
     for activity in Activity<DownloadActivityAttributes>.activities
     where activity.attributes.downloadId == id {
@@ -235,6 +256,45 @@ final class DownloadCoordinator: NSObject {
         )
       }
     }
+  }
+
+  private func transferEstimate(
+    id: String,
+    downloadedBytes: Int64,
+    totalBytes: Int64
+  ) -> (bytesPerSecond: Double, remainingSeconds: Int)? {
+    let now = Date()
+    defer {
+      if transferSamples[id] == nil {
+        transferSamples[id] = TransferSample(
+          downloadedBytes: downloadedBytes,
+          updatedAt: now,
+          bytesPerSecond: 0
+        )
+      }
+    }
+    guard
+      totalBytes > downloadedBytes,
+      let previous = transferSamples[id]
+    else {
+      return nil
+    }
+    let elapsed = now.timeIntervalSince(previous.updatedAt)
+    let addedBytes = downloadedBytes - previous.downloadedBytes
+    guard elapsed > 0, addedBytes > 0 else { return nil }
+    let currentSpeed = Double(addedBytes) / elapsed
+    let smoothedSpeed = previous.bytesPerSecond > 0
+      ? (previous.bytesPerSecond * 0.7) + (currentSpeed * 0.3)
+      : currentSpeed
+    transferSamples[id] = TransferSample(
+      downloadedBytes: downloadedBytes,
+      updatedAt: now,
+      bytesPerSecond: smoothedSpeed
+    )
+    return (
+      smoothedSpeed,
+      Int(ceil(Double(totalBytes - downloadedBytes) / smoothedSpeed))
+    )
   }
 }
 
@@ -264,14 +324,24 @@ extension DownloadCoordinator: URLSessionDownloadDelegate {
     guard let metadata = metadata(for: downloadTask), let id = metadata["id"] else {
       return
     }
-    let total = max(totalBytesExpectedToWrite, 0)
+    let estimatedTotal = Int64(metadata["estimatedBytes"] ?? "") ?? 0
+    let total = totalBytesExpectedToWrite > 0
+      ? totalBytesExpectedToWrite
+      : estimatedTotal
     let progress = total > 0 ? Double(totalBytesWritten) / Double(total) : 0
+    let estimate = transferEstimate(
+      id: id,
+      downloadedBytes: totalBytesWritten,
+      totalBytes: total
+    )
     saveStatus(
       id: id,
       status: "downloading",
       progress: progress,
       downloadedBytes: totalBytesWritten,
       totalBytes: total,
+      estimatedRemainingSeconds: estimate?.remainingSeconds,
+      bytesPerSecond: estimate?.bytesPerSecond ?? 0,
       error: nil
     )
     updateActivity(
@@ -279,7 +349,8 @@ extension DownloadCoordinator: URLSessionDownloadDelegate {
       title: metadata["title"] ?? "SeerrPlay",
       progress: progress,
       downloadedBytes: totalBytesWritten,
-      totalBytes: total
+      totalBytes: total,
+      estimatedRemainingSeconds: estimate?.remainingSeconds
     )
   }
 

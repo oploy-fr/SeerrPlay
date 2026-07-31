@@ -13,10 +13,13 @@ class OfflineDownload {
     required this.createdAt,
     this.posterUrl,
     this.tmdbId,
+    this.ageRating,
     this.status = OfflineDownloadStatus.downloading,
     this.progress = 0,
     this.downloadedBytes = 0,
     this.totalBytes = 0,
+    this.bytesPerSecond = 0,
+    this.estimatedRemainingSeconds,
     this.error,
   });
 
@@ -39,6 +42,7 @@ class OfflineDownload {
           ? Uri.tryParse(posterValue!)
           : null,
       tmdbId: (json['tmdbId'] as num?)?.toInt(),
+      ageRating: json['ageRating'] as String?,
       status: OfflineDownloadStatus.values.firstWhere(
         (value) => value.name == json['status'],
         orElse: () => OfflineDownloadStatus.failed,
@@ -46,6 +50,9 @@ class OfflineDownload {
       progress: (json['progress'] as num?)?.toDouble() ?? 0,
       downloadedBytes: (json['downloadedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (json['totalBytes'] as num?)?.toInt() ?? 0,
+      bytesPerSecond: (json['bytesPerSecond'] as num?)?.toDouble() ?? 0,
+      estimatedRemainingSeconds: (json['estimatedRemainingSeconds'] as num?)
+          ?.toInt(),
       error: json['error'] as String?,
     );
   }
@@ -59,17 +66,23 @@ class OfflineDownload {
   final DateTime createdAt;
   final Uri? posterUrl;
   final int? tmdbId;
+  final String? ageRating;
   final OfflineDownloadStatus status;
   final double progress;
   final int downloadedBytes;
   final int totalBytes;
+  final double bytesPerSecond;
+  final int? estimatedRemainingSeconds;
   final String? error;
 
   OfflineDownload copyWith({
+    String? filePath,
     OfflineDownloadStatus? status,
     double? progress,
     int? downloadedBytes,
     int? totalBytes,
+    double? bytesPerSecond,
+    int? estimatedRemainingSeconds,
     String? error,
   }) {
     return OfflineDownload(
@@ -78,14 +91,18 @@ class OfflineDownload {
       downloadedItemId: downloadedItemId,
       title: title,
       kind: kind,
-      filePath: filePath,
+      filePath: filePath ?? this.filePath,
       createdAt: createdAt,
       posterUrl: posterUrl,
       tmdbId: tmdbId,
+      ageRating: ageRating,
       status: status ?? this.status,
       progress: progress ?? this.progress,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
       totalBytes: totalBytes ?? this.totalBytes,
+      bytesPerSecond: bytesPerSecond ?? this.bytesPerSecond,
+      estimatedRemainingSeconds:
+          estimatedRemainingSeconds ?? this.estimatedRemainingSeconds,
       error: error,
     );
   }
@@ -96,6 +113,7 @@ class OfflineDownload {
     kind: kind,
     posterUrl: posterUrl,
     tmdbId: tmdbId,
+    ageRating: ageRating,
     mediaServerItemId: downloadedItemId,
     localFilePath: filePath,
     isAvailable: true,
@@ -113,10 +131,13 @@ class OfflineDownload {
     'createdAt': createdAt.toIso8601String(),
     'posterUrl': posterUrl?.toString(),
     'tmdbId': tmdbId,
+    'ageRating': ageRating,
     'status': status.name,
     'progress': progress,
     'downloadedBytes': downloadedBytes,
     'totalBytes': totalBytes,
+    'bytesPerSecond': bytesPerSecond,
+    'estimatedRemainingSeconds': estimatedRemainingSeconds,
     'error': error,
   };
 }

@@ -23,6 +23,7 @@ class SettingsScreen extends StatelessWidget {
     required this.onAddProfile,
     required this.onReconnect,
     required this.onDeleteProfile,
+    required this.onContentRestrictionsChanged,
     super.key,
   });
 
@@ -33,6 +34,8 @@ class SettingsScreen extends StatelessWidget {
   final VoidCallback onAddProfile;
   final VoidCallback onReconnect;
   final VoidCallback onDeleteProfile;
+  final void Function(bool enabled, int maximumAge)
+  onContentRestrictionsChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +99,10 @@ class SettingsScreen extends StatelessWidget {
           onAddProfile: onAddProfile,
         ),
         const SizedBox(height: 48),
-        const _PreferencesSection(),
+        _PreferencesSection(
+          activeProfile: activeProfile,
+          onContentRestrictionsChanged: onContentRestrictionsChanged,
+        ),
         const SizedBox(height: 48),
         _ConnectionSection(
           activeProfile: activeProfile,
@@ -262,7 +268,14 @@ class _ProfileSection extends StatelessWidget {
 }
 
 class _PreferencesSection extends StatelessWidget {
-  const _PreferencesSection();
+  const _PreferencesSection({
+    required this.activeProfile,
+    required this.onContentRestrictionsChanged,
+  });
+
+  final ConnectionProfile activeProfile;
+  final void Function(bool enabled, int maximumAge)
+  onContentRestrictionsChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -270,8 +283,61 @@ class _PreferencesSection extends StatelessWidget {
       icon: Icons.tune_rounded,
       title: context.tr('Application'),
       subtitle: context.tr('Language and notification preferences.'),
-      child: const _SettingsRows(
-        children: [_LanguageRow(), _NotificationsRow()],
+      child: _SettingsRows(
+        children: [
+          const _LanguageRow(),
+          const _NotificationsRow(),
+          _ChildModeRow(
+            profile: activeProfile,
+            onChanged: onContentRestrictionsChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChildModeRow extends StatelessWidget {
+  const _ChildModeRow({required this.profile, required this.onChanged});
+
+  static const ages = [6, 9, 12, 14, 16, 18];
+
+  final ConnectionProfile profile;
+  final void Function(bool enabled, int maximumAge) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsRowShell(
+      icon: Icons.child_care_rounded,
+      title: context.tr('Child mode'),
+      subtitle: context.tr(
+        'Only shows content whose age rating is known and allowed.',
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (profile.childMode)
+            PopupMenuButton<int>(
+              initialValue: profile.maximumContentAge,
+              tooltip: context.tr('Maximum age rating'),
+              onSelected: (age) => onChanged(true, age),
+              itemBuilder: (context) => [
+                for (final age in ages)
+                  PopupMenuItem(
+                    value: age,
+                    child: Text(
+                      context.tr('Up to age {age}', arguments: {'age': age}),
+                    ),
+                  ),
+              ],
+              child: _TrailingValue(label: '≤ ${profile.maximumContentAge}'),
+            ),
+          Switch(
+            value: profile.childMode,
+            onChanged: (enabled) =>
+                onChanged(enabled, profile.maximumContentAge),
+          ),
+        ],
       ),
     );
   }

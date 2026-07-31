@@ -371,6 +371,7 @@ MediaViewModel _mediaFromCredit(SeerrPersonCredit credit) {
     backdropUrl: credit.backdropPath == null
         ? null
         : Uri.parse('https://image.tmdb.org/t/p/w1280${credit.backdropPath}'),
+    releaseDate: credit.releaseDate,
     tmdbId: credit.id,
     mediaServerItemId: credit.mediaInfo?.mediaServerItemId,
     isAvailable:

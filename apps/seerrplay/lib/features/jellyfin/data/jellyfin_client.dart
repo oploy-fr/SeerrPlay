@@ -352,7 +352,7 @@ class JellyfinClient implements MediaServerClient {
       'SubtitleStreamIndex': subtitleStreamIndex,
       'MaxStreamingBitrate': ?maxStreamingBitrate,
       'EnableDirectPlay': !forceTranscoding,
-      'EnableDirectStream': true,
+      'EnableDirectStream': !forceTranscoding,
       'EnableTranscoding': true,
       'AllowVideoStreamCopy': true,
       'AllowAudioStreamCopy': true,
@@ -370,7 +370,7 @@ class JellyfinClient implements MediaServerClient {
           if (maxStreamingBitrate != null)
             'MaxStreamingBitrate': '$maxStreamingBitrate',
           'EnableDirectPlay': '${!forceTranscoding}',
-          'EnableDirectStream': 'true',
+          'EnableDirectStream': '${!forceTranscoding}',
           'EnableTranscoding': 'true',
           'IsPlayback': 'true',
           'AutoOpenLiveStream': 'true',

@@ -20,6 +20,8 @@ class MediaViewModel {
     this.overview,
     this.posterUrl,
     this.backdropUrl,
+    this.releaseDate,
+    this.ageRating,
     this.tmdbId,
     this.mediaServerItemId,
     this.localFilePath,
@@ -38,6 +40,8 @@ class MediaViewModel {
   final String? overview;
   final Uri? posterUrl;
   final Uri? backdropUrl;
+  final DateTime? releaseDate;
+  final String? ageRating;
   final int? tmdbId;
   final String? mediaServerItemId;
   final String? localFilePath;
@@ -51,6 +55,7 @@ class MediaViewModel {
   bool get hasPlaybackProgress => (progress ?? 0) > 0;
 
   MediaViewModel copyWith({
+    String? ageRating,
     String? mediaServerItemId,
     String? localFilePath,
     bool? isAvailable,
@@ -67,6 +72,8 @@ class MediaViewModel {
       overview: overview,
       posterUrl: posterUrl,
       backdropUrl: backdropUrl,
+      releaseDate: releaseDate,
+      ageRating: ageRating ?? this.ageRating,
       tmdbId: tmdbId,
       mediaServerItemId: mediaServerItemId ?? this.mediaServerItemId,
       localFilePath: localFilePath ?? this.localFilePath,
@@ -88,6 +95,8 @@ class MediaViewModel {
       overview: overview,
       posterUrl: posterUrl,
       backdropUrl: backdropUrl,
+      releaseDate: releaseDate,
+      ageRating: ageRating,
       tmdbId: tmdbId,
       mediaServerItemId: mediaServerItemId,
       localFilePath: localFilePath,
@@ -112,6 +121,8 @@ class MediaViewModel {
       overview: overview,
       posterUrl: posterUrl,
       backdropUrl: backdropUrl,
+      releaseDate: releaseDate,
+      ageRating: ageRating,
       tmdbId: tmdbId,
       mediaServerItemId: mediaServerItemId ?? this.mediaServerItemId,
       localFilePath: localFilePath,

@@ -74,6 +74,31 @@ class ProfilesController extends AsyncNotifier<ProfilesState> {
     );
   }
 
+  Future<void> updateContentRestrictions({
+    required String profileId,
+    required bool childMode,
+    required int maximumContentAge,
+  }) async {
+    final current = state.requireValue;
+    final profiles = [
+      for (final profile in current.profiles)
+        if (profile.id == profileId)
+          profile.copyWith(
+            childMode: childMode,
+            maximumContentAge: maximumContentAge,
+          )
+        else
+          profile,
+    ];
+    await _repository.saveProfiles(profiles);
+    state = AsyncData(
+      ProfilesState(
+        profiles: profiles,
+        activeProfileId: current.activeProfileId,
+      ),
+    );
+  }
+
   Future<void> deleteProfile(String profileId) async {
     final current = state.requireValue;
     final profiles = current.profiles

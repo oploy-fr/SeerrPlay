@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/localization/locale_controller.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
+import 'package:seerrplay/features/auth/application/app_session_controller.dart';
 import 'package:seerrplay/features/home/application/home_controller.dart';
 import 'package:seerrplay/features/home/application/home_state.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
@@ -108,7 +109,7 @@ class _CategoryScreenState extends ConsumerState<CategoryScreen> {
       }
 
       final seen = <String>{};
-      final results = pages
+      final unfilteredResults = pages
           .expand((page) => page.results)
           .where(
             (media) =>
@@ -118,6 +119,13 @@ class _CategoryScreenState extends ConsumerState<CategoryScreen> {
           .where((media) => seen.add('${media.type.apiValue}:${media.id}'))
           .map(mediaFromSeerr)
           .toList(growable: false);
+      final results = await filterMediaForChildProfile(
+        profile: ref.read(appSessionControllerProvider).requireValue.profile!,
+        client: client,
+        language:
+            ref.read(localeControllerProvider).value?.languageCode ?? 'en',
+        items: unfilteredResults,
+      );
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = results;

@@ -11,6 +11,8 @@ class NativeDownloadEvent {
     required this.progress,
     required this.downloadedBytes,
     required this.totalBytes,
+    this.bytesPerSecond = 0,
+    this.estimatedRemainingSeconds,
     this.error,
   });
 
@@ -21,6 +23,9 @@ class NativeDownloadEvent {
       progress: (map['progress'] as num?)?.toDouble() ?? 0,
       downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
+      bytesPerSecond: (map['bytesPerSecond'] as num?)?.toDouble() ?? 0,
+      estimatedRemainingSeconds: (map['estimatedRemainingSeconds'] as num?)
+          ?.toInt(),
       error: map['error'] as String?,
     );
   }
@@ -30,6 +35,8 @@ class NativeDownloadEvent {
   final double progress;
   final int downloadedBytes;
   final int totalBytes;
+  final double bytesPerSecond;
+  final int? estimatedRemainingSeconds;
   final String? error;
 }
 
@@ -61,6 +68,7 @@ class DownloadProgressService {
     required Map<String, String> headers,
     required String destinationPath,
     required String title,
+    required int estimatedBytes,
   }) {
     return _methodChannel.invokeMethod<void>('start', {
       'id': id,
@@ -68,6 +76,7 @@ class DownloadProgressService {
       'headers': headers,
       'destinationPath': destinationPath,
       'title': title,
+      'estimatedBytes': estimatedBytes,
     });
   }
 
@@ -87,6 +96,7 @@ class DownloadProgressService {
     required String id,
     required String title,
     required double progress,
+    int? estimatedRemainingSeconds,
     bool completed = false,
     bool failed = false,
   }) async {
@@ -105,7 +115,9 @@ class DownloadProgressService {
         ? 'Download failed'
         : completed
         ? 'Available offline'
-        : 'Downloading · $percentage%';
+        : estimatedRemainingSeconds == null
+        ? 'Downloading · $percentage%'
+        : 'Downloading · $percentage% · ${_formatRemainingTime(estimatedRemainingSeconds)} left';
     await _notifications.show(
       id: notificationId,
       title: title,
@@ -151,4 +163,13 @@ class DownloadProgressService {
         ?.requestNotificationsPermission();
     _notificationsInitialized = true;
   }
+}
+
+String _formatRemainingTime(int seconds) {
+  if (seconds < 60) return '< 1 min';
+  final minutes = (seconds / 60).ceil();
+  if (minutes < 60) return '$minutes min';
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  return remainingMinutes == 0 ? '$hours h' : '$hours h $remainingMinutes min';
 }

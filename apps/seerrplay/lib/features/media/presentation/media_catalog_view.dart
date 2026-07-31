@@ -41,7 +41,7 @@ class MediaCatalogView extends StatefulWidget {
 class _MediaCatalogViewState extends State<MediaCatalogView> {
   final _searchController = TextEditingController();
   MediaCatalogFilter _filter = MediaCatalogFilter.all;
-  MediaCatalogSort _sort = MediaCatalogSort.relevance;
+  MediaCatalogSort _sort = MediaCatalogSort.newest;
   MediaStatusFilter _statusFilter = MediaStatusFilter.all;
   String _query = '';
 
@@ -89,10 +89,10 @@ class _MediaCatalogViewState extends State<MediaCatalogView> {
       MediaCatalogSort.relevance => filtered,
       MediaCatalogSort.newest => [
         ...filtered,
-      ]..sort((left, right) => _year(right).compareTo(_year(left))),
+      ]..sort((left, right) => _dateValue(right).compareTo(_dateValue(left))),
       MediaCatalogSort.oldest => [
         ...filtered,
-      ]..sort((left, right) => _year(left).compareTo(_year(right))),
+      ]..sort((left, right) => _dateValue(left).compareTo(_dateValue(right))),
       MediaCatalogSort.alphabetical =>
         [...filtered]..sort(
           (left, right) =>
@@ -289,7 +289,7 @@ class _CatalogControls extends StatelessWidget {
           ],
           icon: Icon(
             Icons.swap_vert_rounded,
-            color: sort == MediaCatalogSort.relevance ? null : AppColors.violet,
+            color: sort == MediaCatalogSort.newest ? null : AppColors.violet,
           ),
         ),
       ],
@@ -430,7 +430,10 @@ IconData _statusFilterIcon(MediaStatusFilter filter) => switch (filter) {
   MediaStatusFilter.failed => Icons.error_outline_rounded,
 };
 
-int _year(MediaViewModel media) {
+int _dateValue(MediaViewModel media) {
+  final releaseDate = media.releaseDate;
+  if (releaseDate != null) return releaseDate.millisecondsSinceEpoch;
   final match = RegExp(r'\b(19|20)\d{2}\b').firstMatch(media.subtitle ?? '');
-  return int.tryParse(match?.group(0) ?? '') ?? 0;
+  final year = int.tryParse(match?.group(0) ?? '');
+  return year == null ? 0 : DateTime(year).millisecondsSinceEpoch;
 }

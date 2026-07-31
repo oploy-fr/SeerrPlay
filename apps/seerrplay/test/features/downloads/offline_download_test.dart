@@ -14,10 +14,13 @@ void main() {
       createdAt: DateTime.utc(2026, 7, 24),
       posterUrl: Uri.parse('https://images.example/poster.jpg'),
       tmdbId: 12,
+      ageRating: '12',
       status: OfflineDownloadStatus.completed,
       progress: 1,
       downloadedBytes: 1024,
       totalBytes: 1024,
+      bytesPerSecond: 512,
+      estimatedRemainingSeconds: 2,
     );
 
     final restored = OfflineDownload.fromJson(download.toJson());
@@ -25,6 +28,8 @@ void main() {
 
     expect(restored.downloadedItemId, 'episode-1');
     expect(restored.status, OfflineDownloadStatus.completed);
+    expect(restored.ageRating, '12');
+    expect(restored.estimatedRemainingSeconds, 2);
     expect(media.localFilePath, '/downloads/episode.mp4');
     expect(media.kind, MediaKind.episode);
     expect(media.isAvailable, isTrue);

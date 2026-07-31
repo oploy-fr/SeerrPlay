@@ -176,7 +176,7 @@ void main() {
           {
             'Id': 'source-1',
             'TranscodingUrl':
-                '/Videos/movie/master.m3u8?MediaSourceId=source-1',
+                '/Videos/movie/master.m3u8?MediaSourceId=source-1&AudioStreamIndex=2&SubtitleStreamIndex=4&SubtitleMethod=Encode&MaxStreamingBitrate=10000000',
           },
         ],
       }),
@@ -205,6 +205,10 @@ void main() {
     );
     expect(uri.path, '/jellyfin/Videos/movie/master.m3u8');
     expect(uri.queryParameters['api_key'], 'access-token');
+    expect(uri.queryParameters['AudioStreamIndex'], '2');
+    expect(uri.queryParameters['SubtitleStreamIndex'], '4');
+    expect(uri.queryParameters['SubtitleMethod'], 'Encode');
+    expect(uri.queryParameters['MaxStreamingBitrate'], '10000000');
     expect(
       adapter.requests.single.uri.queryParameters['AudioStreamIndex'],
       '2',
@@ -215,6 +219,7 @@ void main() {
     );
     expect(adapter.requests.single.data['MaxStreamingBitrate'], 10000000);
     expect(adapter.requests.single.data['EnableDirectPlay'], isFalse);
+    expect(adapter.requests.single.data['EnableDirectStream'], isFalse);
   });
 
   test('lets Jellyfin choose default playback settings', () async {

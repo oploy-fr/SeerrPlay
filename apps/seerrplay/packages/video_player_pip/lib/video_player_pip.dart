@@ -65,6 +65,27 @@ class VideoPlayerPip {
     );
   }
 
+  /// Prepares system-managed PiP while the app is still in the foreground.
+  ///
+  /// Android 12+ and iOS can then enter PiP automatically when the user leaves
+  /// the app, avoiding a lifecycle callback that arrives too late.
+  static Future<bool> prepareAutomaticPip(
+    VideoPlayerController controller, {
+    int? width,
+    int? height,
+  }) {
+    if (controller.playerId < 0) return Future.value(false);
+    return _platform.prepareAutomaticPip(
+      controller.playerId,
+      width: width,
+      height: height,
+    );
+  }
+
+  static Future<void> disableAutomaticPip() {
+    return _platform.disableAutomaticPip();
+  }
+
   /// Exits Picture-in-Picture mode if currently active.
   ///
   /// Returns `true` if PiP mode was exited successfully, or `false` otherwise.

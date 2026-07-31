@@ -9,6 +9,7 @@ import 'package:seerrplay/features/home/application/home_controller.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_catalog_view.dart';
 import 'package:seerrplay/features/media/presentation/media_detail_screen.dart';
+import 'package:seerrplay/features/profiles/domain/content_rating_policy.dart';
 
 class MediaServerLibraryScreen extends ConsumerStatefulWidget {
   const MediaServerLibraryScreen({super.key});
@@ -62,6 +63,10 @@ class _MediaServerLibraryScreenState
     }
     try {
       final client = ref.read(mediaServerClientProvider);
+      final profile = ref
+          .read(appSessionControllerProvider)
+          .requireValue
+          .profile!;
       var startIndex = 0;
       var total = 1;
       final loaded = <MediaViewModel>[];
@@ -73,7 +78,19 @@ class _MediaServerLibraryScreenState
         );
         if (!mounted || requestId != _requestId) return;
         total = page.totalRecordCount;
-        loaded.addAll(page.items.map((item) => mediaFromServer(item, client)));
+        final pageItems = page.items.map(
+          (item) => mediaFromServer(item, client),
+        );
+        loaded.addAll(
+          profile.childMode
+              ? pageItems.where(
+                  (media) => ContentRatingPolicy.allows(
+                    media.ageRating,
+                    profile.maximumContentAge,
+                  ),
+                )
+              : pageItems,
+        );
         startIndex += page.items.length;
         setState(() => _items = List.unmodifiable(loaded));
         if (page.items.isEmpty) break;

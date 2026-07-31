@@ -9,6 +9,7 @@ struct DownloadActivityAttributes: ActivityAttributes {
     var progress: Double
     var downloadedBytes: Int64
     var totalBytes: Int64
+    var estimatedRemainingSeconds: Int?
   }
 
   var downloadId: String

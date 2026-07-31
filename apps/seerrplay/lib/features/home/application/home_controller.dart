@@ -10,6 +10,9 @@ import 'package:seerrplay/features/home/application/home_state.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media_server/data/media_server_client.dart';
+import 'package:seerrplay/features/profiles/domain/connection_profile.dart';
+import 'package:seerrplay/features/profiles/domain/content_rating_policy.dart';
+import 'package:seerrplay/features/seerr/data/seerr_client.dart';
 import 'package:seerrplay/features/seerr/domain/seerr_models.dart';
 
 final homeContentProvider = FutureProvider<HomeContent>((ref) async {
@@ -17,11 +20,9 @@ final homeContentProvider = FutureProvider<HomeContent>((ref) async {
   final seerr = ref.watch(seerrClientProvider);
   final language =
       ref.watch(localeControllerProvider).value?.languageCode ?? 'en';
-  final seerrUserId = ref
-      .watch(appSessionControllerProvider)
-      .requireValue
-      .credentials!
-      .seerrUserId;
+  final session = ref.watch(appSessionControllerProvider).requireValue;
+  final profile = session.profile!;
+  final seerrUserId = session.credentials!.seerrUserId;
   var isMediaServerReachable = false;
   var isSeerrReachable = false;
   HomeServiceIssue? mediaServerIssue;
@@ -200,6 +201,35 @@ final homeContentProvider = FutureProvider<HomeContent>((ref) async {
     ...seriesPage1.results,
     ...seriesPage2.results,
   ];
+  final continueWatching = mergeContinueWatchingItems(
+    resumeItems: resumePage.items,
+    nextUpItems: nextUpPage.items,
+    recentlyPlayedEpisodes: recentlyPlayedPage.items,
+  ).map((item) => mediaFromServer(item, mediaServer)).toList(growable: false);
+  final filteredSections = await (
+    filterMediaForChildProfile(
+      profile: profile,
+      client: seerr,
+      language: language,
+      items: trendingPage.results
+          .where((media) => media.type != SeerrMediaType.person)
+          .map(mediaFromSeerr)
+          .toList(growable: false),
+    ),
+    filterMediaForChildProfile(
+      profile: profile,
+      client: seerr,
+      language: language,
+      items: popularMovies,
+    ),
+    filterMediaForChildProfile(
+      profile: profile,
+      client: seerr,
+      language: language,
+      items: popularSeries,
+    ),
+  ).wait;
+  final (filteredTrending, filteredMovies, filteredSeries) = filteredSections;
   Uri? categoryImage(int genreId, SeerrMediaType type) {
     for (final media in categoryMedia) {
       if (media.type == type &&
@@ -212,24 +242,28 @@ final homeContentProvider = FutureProvider<HomeContent>((ref) async {
   }
 
   return HomeContent(
-    continueWatching: mergeContinueWatchingItems(
-      resumeItems: resumePage.items,
-      nextUpItems: nextUpPage.items,
-      recentlyPlayedEpisodes: recentlyPlayedPage.items,
-    ).map((item) => mediaFromServer(item, mediaServer)).toList(growable: false),
-    trending: trendingPage.results
-        .where((media) => media.type != SeerrMediaType.person)
-        .map(mediaFromSeerr)
-        .toList(growable: false),
-    popularMovies: popularMovies,
-    popularSeries: popularSeries,
+    continueWatching: profile.childMode
+        ? continueWatching
+              .where(
+                (media) => ContentRatingPolicy.allows(
+                  media.ageRating,
+                  profile.maximumContentAge,
+                ),
+              )
+              .toList(growable: false)
+        : continueWatching,
+    trending: filteredTrending,
+    popularMovies: filteredMovies,
+    popularSeries: filteredSeries,
     categories: [
       for (final genre in movieGenres)
         HomeCategory(
           id: genre.id,
           name: genre.name,
           type: SeerrMediaType.movie,
-          imageUrl: categoryImage(genre.id, SeerrMediaType.movie),
+          imageUrl: profile.childMode
+              ? null
+              : categoryImage(genre.id, SeerrMediaType.movie),
         ),
       for (final genre in tvGenres)
         if (!movieGenres.any((item) => item.name == genre.name))
@@ -237,7 +271,9 @@ final homeContentProvider = FutureProvider<HomeContent>((ref) async {
             id: genre.id,
             name: genre.name,
             type: SeerrMediaType.tv,
-            imageUrl: categoryImage(genre.id, SeerrMediaType.tv),
+            imageUrl: profile.childMode
+                ? null
+                : categoryImage(genre.id, SeerrMediaType.tv),
           ),
     ],
     providers: providers
@@ -443,7 +479,12 @@ final userRequestsProvider = FutureProvider<List<MediaViewModel>>((ref) async {
   );
   final timer = Timer(const Duration(seconds: 15), ref.invalidateSelf);
   ref.onDispose(timer.cancel);
-  return items.whereType<MediaViewModel>().toList(growable: false);
+  return filterMediaForChildProfile(
+    profile: session.profile!,
+    client: client,
+    language: language,
+    items: items.whereType<MediaViewModel>().toList(growable: false),
+  );
 });
 
 final availableUnwatchedRequestsProvider =
@@ -486,15 +527,28 @@ final providerResultsProvider = FutureProvider.autoDispose
         ),
       ]);
       final seen = <String>{};
-      return [
-            ...pages[0].results,
-            ...pages[1].results,
-            ...pages[2].results,
-            ...pages[3].results,
-          ]
-          .where((media) => seen.add('${media.type.apiValue}:${media.id}'))
-          .map(mediaFromSeerr)
-          .toList(growable: false);
+      final items =
+          [
+                ...pages[0].results,
+                ...pages[1].results,
+                ...pages[2].results,
+                ...pages[3].results,
+              ]
+              .where((media) => seen.add('${media.type.apiValue}:${media.id}'))
+              .map(mediaFromSeerr)
+              .toList(growable: false);
+      final profile = ref
+          .watch(appSessionControllerProvider)
+          .requireValue
+          .profile!;
+      final language =
+          ref.watch(localeControllerProvider).value?.languageCode ?? 'en';
+      return filterMediaForChildProfile(
+        profile: profile,
+        client: client,
+        language: language,
+        items: items,
+      );
     });
 
 final searchResultsProvider = FutureProvider.autoDispose
@@ -516,7 +570,12 @@ final searchResultsProvider = FutureProvider.autoDispose
       final mediaResults = page.results
           .where((media) => media.type != SeerrMediaType.person)
           .toList(growable: false);
-      return mediaResults.map(mediaFromSeerr).toList(growable: false);
+      return filterMediaForChildProfile(
+        profile: ref.watch(appSessionControllerProvider).requireValue.profile!,
+        client: client,
+        language: language,
+        items: mediaResults.map(mediaFromSeerr).toList(growable: false),
+      );
     });
 
 final categoryResultsProvider = FutureProvider.autoDispose
@@ -525,7 +584,14 @@ final categoryResultsProvider = FutureProvider.autoDispose
       final page = category.$2 == SeerrMediaType.movie
           ? await client.discoverMovies(genreId: category.$1)
           : await client.discoverTv(genreId: category.$1);
-      return page.results.map(mediaFromSeerr).toList(growable: false);
+      final language =
+          ref.watch(localeControllerProvider).value?.languageCode ?? 'en';
+      return filterMediaForChildProfile(
+        profile: ref.watch(appSessionControllerProvider).requireValue.profile!,
+        client: client,
+        language: language,
+        items: page.results.map(mediaFromSeerr).toList(growable: false),
+      );
     });
 
 MediaViewModel mediaFromServer(MediaServerItem item, MediaServerClient client) {
@@ -582,6 +648,10 @@ MediaViewModel mediaFromServer(MediaServerItem item, MediaServerClient client) {
     // Episode primary images are generally frame captures. They are more
     // useful than the generic series backdrop in Continue Watching and detail.
     backdropUrl: isEpisode ? primaryImage : backdropImage,
+    ageRating: item.officialRating,
+    releaseDate:
+        item.premiereDate ??
+        (item.productionYear == null ? null : DateTime(item.productionYear!)),
     tmdbId: int.tryParse(tmdbValue ?? ''),
     mediaServerItemId: item.id,
     isAvailable: true,
@@ -602,6 +672,7 @@ MediaViewModel mediaFromSeerr(SeerrMedia media) {
         : MediaKind.series,
     posterUrl: _tmdbImage(media.posterPath, 'w500'),
     backdropUrl: _tmdbImage(media.backdropPath, 'w1280'),
+    releaseDate: media.releaseDate,
     tmdbId: media.id,
     mediaServerItemId: media.mediaInfo?.mediaServerItemId,
     isAvailable:
@@ -629,6 +700,8 @@ MediaViewModel mediaFromRequest(
         : MediaKind.series,
     posterUrl: _tmdbImage(details.posterPath, 'w500'),
     backdropUrl: _tmdbImage(details.backdropPath, 'w1280'),
+    releaseDate: details.releaseDate,
+    ageRating: details.certificationFor('FR'),
     tmdbId: details.id,
     mediaServerItemId: mediaInfo?.mediaServerItemId,
     isAvailable:
@@ -639,6 +712,49 @@ MediaViewModel mediaFromRequest(
     downloadProgress: status.$3,
     seerrRequestId: request.id,
   );
+}
+
+Future<List<MediaViewModel>> filterMediaForChildProfile({
+  required ConnectionProfile profile,
+  required SeerrClient client,
+  required String language,
+  required List<MediaViewModel> items,
+}) async {
+  if (!profile.childMode) return items;
+  final region = switch (language) {
+    'fr' => 'FR',
+    'es' => 'ES',
+    'it' => 'IT',
+    'de' => 'DE',
+    _ => 'US',
+  };
+  final allowed = <MediaViewModel>[];
+  for (var start = 0; start < items.length; start += 6) {
+    final end = (start + 6).clamp(0, items.length);
+    final batch = items.sublist(start, end);
+    final resolved = await Future.wait(
+      batch.map((media) async {
+        var rating = media.ageRating;
+        final tmdbId = media.tmdbId;
+        if (rating == null && tmdbId != null) {
+          try {
+            final details = media.kind == MediaKind.movie
+                ? await client.movieDetails(tmdbId, language: language)
+                : await client.tvDetails(tmdbId, language: language);
+            rating = details.certificationFor(region);
+          } catch (_) {
+            return null;
+          }
+        }
+        if (!ContentRatingPolicy.allows(rating, profile.maximumContentAge)) {
+          return null;
+        }
+        return media.copyWith(ageRating: rating);
+      }),
+    );
+    allowed.addAll(resolved.whereType<MediaViewModel>());
+  }
+  return allowed;
 }
 
 (MediaLifecycleStatus, String?, double?) mediaInfoLifecycle(

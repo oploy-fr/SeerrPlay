@@ -30,6 +30,11 @@ struct DownloadActivityWidget: Widget {
             Text(context.state.status)
               .font(.caption)
               .foregroundStyle(.secondary)
+            if let seconds = context.state.estimatedRemainingSeconds {
+              Text(remainingTime(seconds))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
           }
           Spacer()
           Text("\(Int((context.state.progress * 100).rounded()))%")
@@ -57,9 +62,16 @@ struct DownloadActivityWidget: Widget {
             .font(.headline.monospacedDigit())
         }
         DynamicIslandExpandedRegion(.bottom) {
-          ProgressView(value: context.state.progress)
-            .tint(violet)
-            .padding(.horizontal, 4)
+          VStack(spacing: 4) {
+            ProgressView(value: context.state.progress)
+              .tint(violet)
+            if let seconds = context.state.estimatedRemainingSeconds {
+              Text(remainingTime(seconds))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+          }
+          .padding(.horizontal, 4)
         }
       } compactLeading: {
         Image(systemName: "arrow.down")
@@ -76,4 +88,15 @@ struct DownloadActivityWidget: Widget {
       .keylineTint(violet)
     }
   }
+}
+
+private func remainingTime(_ seconds: Int) -> String {
+  if seconds < 60 { return "< 1 min remaining" }
+  let minutes = Int(ceil(Double(seconds) / 60))
+  if minutes < 60 { return "\(minutes) min remaining" }
+  let hours = minutes / 60
+  let remainingMinutes = minutes % 60
+  return remainingMinutes == 0
+    ? "\(hours) h remaining"
+    : "\(hours) h \(remainingMinutes) min remaining"
 }

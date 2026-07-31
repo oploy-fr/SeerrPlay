@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:seerrplay/features/auth/application/app_session_controller.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
 import 'package:seerrplay/features/downloads/application/download_progress_service.dart';
+import 'package:seerrplay/features/downloads/application/download_speed_estimator.dart';
 import 'package:seerrplay/features/downloads/domain/offline_download.dart';
 import 'package:seerrplay/features/downloads/domain/offline_download_option.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
@@ -23,6 +24,7 @@ final downloadsControllerProvider =
 class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, int> _lastNativeProgress = {};
+  final Map<String, DownloadSpeedEstimator> _speedEstimators = {};
   StreamSubscription<NativeDownloadEvent>? _nativeEvents;
 
   String get _profileId =>
@@ -58,9 +60,12 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         .toList(growable: false);
     final available = <OfflineDownload>[];
     for (final download in restored) {
-      final file = File(download.filePath);
+      final file = await _resolveDownloadFile(download);
+      final restoredDownload = file.path == download.filePath
+          ? download
+          : download.copyWith(filePath: file.path);
       if (download.status == OfflineDownloadStatus.completed) {
-        if (await file.exists()) available.add(download);
+        if (await file.exists()) available.add(restoredDownload);
         continue;
       }
       if (DownloadProgressService.usesNativeBackgroundDownloads) {
@@ -74,16 +79,25 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
               progress: 1,
               downloadedBytes: nativeStatus!.downloadedBytes,
               totalBytes: nativeStatus.totalBytes,
+              filePath: file.path,
             ),
           );
           continue;
         }
         if (nativeStatus?.status == 'downloading') {
+          final totalBytes = nativeStatus!.totalBytes > 0
+              ? nativeStatus.totalBytes
+              : download.totalBytes;
+          final progress = nativeStatus.progress > 0
+              ? nativeStatus.progress
+              : totalBytes > 0
+              ? nativeStatus.downloadedBytes / totalBytes
+              : 0.0;
           available.add(
-            download.copyWith(
-              progress: nativeStatus!.progress,
+            restoredDownload.copyWith(
+              progress: progress.clamp(0, 1),
               downloadedBytes: nativeStatus.downloadedBytes,
-              totalBytes: nativeStatus.totalBytes,
+              totalBytes: totalBytes,
             ),
           );
           continue;
@@ -91,7 +105,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
       }
       if (await file.exists()) await file.delete();
       available.add(
-        download.copyWith(
+        restoredDownload.copyWith(
           status: OfflineDownloadStatus.failed,
           error: 'Download interrupted.',
         ),
@@ -165,6 +179,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
       createdAt: DateTime.now(),
       posterUrl: media.posterUrl,
       tmdbId: media.tmdbId,
+      ageRating: media.ageRating,
       totalBytes: option.estimatedBytes,
     );
     state = AsyncData([
@@ -199,6 +214,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
           headers: client.downloadHeaders(),
           destinationPath: filePath,
           title: entry.title,
+          estimatedBytes: entry.totalBytes,
         );
       } catch (_) {
         _replace(
@@ -229,12 +245,18 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         onReceiveProgress: (received, total) {
           if (!state.hasValue) return;
           final progress = total <= 0 ? 0.0 : received / total;
+          final knownTotal = total > 0 ? total : entry.totalBytes;
+          final estimate = _speedEstimators
+              .putIfAbsent(id, DownloadSpeedEstimator.new)
+              .update(downloadedBytes: received, totalBytes: knownTotal);
           _replace(
             id,
             (download) => download.copyWith(
               progress: progress.clamp(0, 1),
               downloadedBytes: received,
-              totalBytes: total > 0 ? total : download.totalBytes,
+              totalBytes: knownTotal,
+              bytesPerSecond: estimate?.bytesPerSecond,
+              estimatedRemainingSeconds: estimate?.remainingSeconds,
             ),
           );
           unawaited(
@@ -242,6 +264,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
               id: id,
               title: entry.title,
               progress: progress,
+              estimatedRemainingSeconds: estimate?.remainingSeconds,
             ),
           );
         },
@@ -262,6 +285,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         progress: 1,
         completed: true,
       );
+      _speedEstimators.remove(id);
     } on DioException catch (error) {
       final file = File(filePath);
       if (await file.exists()) await file.delete();
@@ -282,12 +306,14 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
       );
     } finally {
       _cancelTokens.remove(id);
+      _speedEstimators.remove(id);
       await _persist(state.requireValue);
     }
   }
 
   Future<void> delete(String id) async {
     _cancelTokens.remove(id)?.cancel();
+    _speedEstimators.remove(id);
     if (DownloadProgressService.usesNativeBackgroundDownloads) {
       await DownloadProgressService.cancelNativeDownload(id);
     } else {
@@ -305,6 +331,30 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     await _persist(state.requireValue);
   }
 
+  Future<File?> localFileForItem(String itemId) async {
+    if (itemId.isEmpty) return null;
+    final completed = state.value
+        ?.where(
+          (download) =>
+              download.status == OfflineDownloadStatus.completed &&
+              (download.downloadedItemId == itemId ||
+                  download.sourceItemId == itemId),
+        )
+        .firstOrNull;
+    if (completed != null) {
+      final file = await _resolveDownloadFile(completed);
+      if (await file.exists()) return file;
+    }
+    final directory = await _downloadDirectory();
+    final prefix = '${_profileId}_$itemId.';
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is File && entity.uri.pathSegments.last.startsWith(prefix)) {
+        return entity;
+      }
+    }
+    return null;
+  }
+
   void _replace(
     String id,
     OfflineDownload Function(OfflineDownload download) update,
@@ -317,7 +367,21 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
 
   void _onNativeEvent(NativeDownloadEvent event) {
     if (!state.hasValue) return;
-    final percentage = (event.progress.clamp(0, 1) * 100).round();
+    final current = state.requireValue
+        .where((download) => download.id == event.id)
+        .firstOrNull;
+    if (current == null) return;
+    final totalBytes = event.totalBytes > 0
+        ? event.totalBytes
+        : current.totalBytes;
+    final progress = event.status == 'completed'
+        ? 1.0
+        : event.progress > 0
+        ? event.progress
+        : totalBytes > 0
+        ? event.downloadedBytes / totalBytes
+        : 0.0;
+    final percentage = (progress.clamp(0, 1) * 100).round();
     if (event.status == 'downloading' &&
         _lastNativeProgress[event.id] == percentage) {
       return;
@@ -331,9 +395,11 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
           'failed' => OfflineDownloadStatus.failed,
           _ => OfflineDownloadStatus.downloading,
         },
-        progress: event.progress,
+        progress: progress.clamp(0, 1),
         downloadedBytes: event.downloadedBytes,
-        totalBytes: event.totalBytes,
+        totalBytes: totalBytes,
+        bytesPerSecond: event.bytesPerSecond,
+        estimatedRemainingSeconds: event.estimatedRemainingSeconds,
         error: event.status == 'failed'
             ? 'Unable to download this media.'
             : null,
@@ -350,6 +416,14 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     final directory = Directory('${root.path}/SeerrPlay/downloads/$_profileId');
     await directory.create(recursive: true);
     return directory;
+  }
+
+  Future<File> _resolveDownloadFile(OfflineDownload download) async {
+    final storedFile = File(download.filePath);
+    if (await storedFile.exists()) return storedFile;
+    final directory = await _downloadDirectory();
+    final fileName = storedFile.uri.pathSegments.last;
+    return File('${directory.path}/$fileName');
   }
 
   Future<void> _persist(List<OfflineDownload> downloads) async {

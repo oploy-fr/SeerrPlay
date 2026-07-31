@@ -41,6 +41,20 @@ public class VideoPlayerPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureCo
       NSLog("VideoPlayerPip: Attempting to enter PiP mode for playerId: \(playerId)")
       enterPipMode(playerId: playerId, completion: result)
 
+    case "prepareAutomaticPip":
+      guard let args = call.arguments as? [String: Any],
+            let playerId = args["playerId"] as? Int else {
+        result(FlutterError(code: "INVALID_ARGUMENTS", message: "Missing playerId", details: nil))
+        return
+      }
+      result(prepareAutomaticPip(playerId: playerId))
+
+    case "disableAutomaticPip":
+      if #available(iOS 14.2, *) {
+        pipController?.canStartPictureInPictureAutomaticallyFromInline = false
+      }
+      result(nil)
+
     case "exitPipMode":
       NSLog("VideoPlayerPip: Attempting to exit PiP mode, current isInPipMode = \(isInPipMode), pipController exists: \(pipController != nil)")
       exitPipMode(completion: result)
@@ -103,6 +117,39 @@ public class VideoPlayerPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureCo
     }
   }
 
+  private func prepareAutomaticPip(playerId: Int) -> Bool {
+    guard #available(iOS 14.0, *),
+          let playerLayer = findAVPlayerLayer(playerId: playerId),
+          playerLayer.player != nil else {
+      return false
+    }
+    configurePipController(playerLayer: playerLayer)
+    return pipController != nil
+  }
+
+  private func configurePipController(playerLayer: AVPlayerLayer) {
+    cleanupPipController()
+    pipController = AVPictureInPictureController(playerLayer: playerLayer)
+    pipController?.delegate = self
+    if #available(iOS 14.2, *) {
+      pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+    }
+    if #available(iOS 15.0, *) {
+      pipController?.requiresLinearPlayback = false
+    }
+    observationToken = pipController?.observe(
+      \.isPictureInPictureActive,
+      options: [.new]
+    ) { [weak self] _, change in
+      guard let self, let newValue = change.newValue else { return }
+      self.isInPipMode = newValue
+      self.channel?.invokeMethod(
+        "pipModeChanged",
+        arguments: ["isInPipMode": newValue]
+      )
+    }
+  }
+
   private func continueEnterPipMode(playerLayer: AVPlayerLayer, completion: @escaping FlutterResult) {
     // Create and configure the PiP controller
     if #available(iOS 14.0, *) {
@@ -110,35 +157,9 @@ public class VideoPlayerPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureCo
 
       // Check if we can create a PiP controller with this layer
       if AVPictureInPictureController.isPictureInPictureSupported() && playerLayer.player != nil {
-        // Clean up any existing controller and observations
-        cleanupPipController()
-
-        pipController = AVPictureInPictureController(playerLayer: playerLayer)
-        pipController?.delegate = self
-
-        // Enable PiP to start from inline (foreground)
-        if #available(iOS 14.2, *) {
-          NSLog("VideoPlayerPip: Setting canStartPictureInPictureAutomaticallyFromInline to true")
-          pipController?.canStartPictureInPictureAutomaticallyFromInline = true
-        }
-
-        // Allow PiP during interactive playback
-        if #available(iOS 15.0, *) {
-          NSLog("VideoPlayerPip: Setting requiresLinearPlayback to false")
-          pipController?.requiresLinearPlayback = false
-        }
+        configurePipController(playerLayer: playerLayer)
 
         NSLog("VideoPlayerPip: PiP controller created successfully: \(String(describing: pipController))")
-
-        // Set up observation for the possible PiP state
-        if #available(iOS 14.0, *) {
-          observationToken = pipController?.observe(\.isPictureInPictureActive, options: [.new]) { [weak self] (controller, change) in
-            guard let self = self, let newValue = change.newValue else { return }
-            NSLog("VideoPlayerPip: isPictureInPictureActive changed to \(newValue)")
-            self.isInPipMode = newValue
-            self.channel?.invokeMethod("pipModeChanged", arguments: ["isInPipMode": newValue])
-          }
-        }
 
         // Start PiP - Try to start it more forcefully
         NSLog("VideoPlayerPip: Attempting to start PiP")

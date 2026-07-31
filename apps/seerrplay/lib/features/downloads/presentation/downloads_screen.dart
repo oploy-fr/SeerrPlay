@@ -4,7 +4,9 @@ import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/features/downloads/application/downloads_controller.dart';
 import 'package:seerrplay/features/downloads/domain/offline_download.dart';
+import 'package:seerrplay/features/auth/application/app_session_controller.dart';
 import 'package:seerrplay/features/player/presentation/player_screen.dart';
+import 'package:seerrplay/features/profiles/domain/content_rating_policy.dart';
 
 class DownloadsScreen extends ConsumerWidget {
   const DownloadsScreen({super.key});
@@ -20,6 +22,20 @@ class DownloadsScreen extends ConsumerWidget {
           child: Text(context.tr('Unable to load offline downloads.')),
         ),
         data: (items) {
+          final profile = ref
+              .watch(appSessionControllerProvider)
+              .requireValue
+              .profile!;
+          if (profile.childMode) {
+            items = items
+                .where(
+                  (download) => ContentRatingPolicy.allows(
+                    download.ageRating,
+                    profile.maximumContentAge,
+                  ),
+                )
+                .toList(growable: false);
+          }
           if (items.isEmpty) return const _DownloadsEmptyState();
           final totalBytes = items
               .where(
@@ -229,8 +245,14 @@ class _DownloadStatus extends StatelessWidget {
         AppColors.cyan,
         download.totalBytes > 0
             ? context.tr(
-                'Downloading · {progress}%',
-                arguments: {'progress': (download.progress * 100).round()},
+                download.estimatedRemainingSeconds == null
+                    ? 'Downloading · {progress}%'
+                    : 'Downloading · {progress}% · {time} left',
+                arguments: {
+                  'progress': (download.progress * 100).round(),
+                  if (download.estimatedRemainingSeconds case final seconds?)
+                    'time': _formatRemainingTime(seconds),
+                },
               )
             : context.tr('Preparing download…'),
       ),
@@ -263,6 +285,15 @@ class _DownloadStatus extends StatelessWidget {
       ],
     );
   }
+}
+
+String _formatRemainingTime(int seconds) {
+  if (seconds < 60) return '< 1 min';
+  final minutes = (seconds / 60).ceil();
+  if (minutes < 60) return '$minutes min';
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  return remainingMinutes == 0 ? '$hours h' : '$hours h $remainingMinutes min';
 }
 
 class _DownloadsEmptyState extends StatelessWidget {

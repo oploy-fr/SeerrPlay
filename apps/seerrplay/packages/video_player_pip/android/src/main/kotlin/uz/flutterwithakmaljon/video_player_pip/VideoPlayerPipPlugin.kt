@@ -76,6 +76,25 @@ class VideoPlayerPipPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
           result.error("INVALID_ARGUMENT", "Player ID is required", null)
         }
       }
+      "prepareAutomaticPip" -> {
+        val playerId = call.argument<Int>("playerId")
+        if (playerId == null) {
+          result.error("INVALID_ARGUMENT", "Player ID is required", null)
+        } else {
+          activePlayerId = playerId
+          result.success(
+            prepareAutomaticPip(
+              playerId,
+              call.argument<Int>("width"),
+              call.argument<Int>("height")
+            )
+          )
+        }
+      }
+      "disableAutomaticPip" -> {
+        disableAutomaticPip()
+        result.success(null)
+      }
       "exitPipMode" -> {
         Log.d(TAG, "Exiting PiP mode, current state: $isInPipMode")
         // Clear active player ID when exiting PiP
@@ -181,6 +200,52 @@ class VideoPlayerPipPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
     } catch (e: Exception) {
       Log.e(TAG, "Error entering PiP mode", e)
       return false
+    }
+  }
+
+  private fun prepareAutomaticPip(
+    playerId: Int,
+    customWidth: Int?,
+    customHeight: Int?
+  ): Boolean {
+    if (!isPipSupported() || activity == null) return false
+    // Auto-enter is provided by the platform from Android 12. Older versions
+    // keep using the lifecycle fallback in Flutter.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+    val videoView = findVideoPlayerView(playerId) ?: return false
+    val width = customWidth ?: videoView.width
+    val height = customHeight ?: videoView.height
+    val aspectRatio = if (width >= 100 && height >= 100) {
+      Rational(width, height)
+    } else {
+      Rational(16, 9)
+    }
+    val location = IntArray(2)
+    videoView.getLocationInWindow(location)
+    val sourceRectHint = android.graphics.Rect(
+      location[0],
+      location[1],
+      location[0] + videoView.width,
+      location[1] + videoView.height
+    )
+    activity?.setPictureInPictureParams(
+      PictureInPictureParams.Builder()
+        .setAspectRatio(aspectRatio)
+        .setSourceRectHint(sourceRectHint)
+        .setSeamlessResizeEnabled(true)
+        .setAutoEnterEnabled(true)
+        .build()
+    )
+    return true
+  }
+
+  private fun disableAutomaticPip() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      activity?.setPictureInPictureParams(
+        PictureInPictureParams.Builder()
+          .setAutoEnterEnabled(false)
+          .build()
+      )
     }
   }
 

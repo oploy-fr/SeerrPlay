@@ -56,6 +56,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _playbackSpeed = 1;
   bool _volumeExpanded = false;
   _PlayerFit _playerFit = _PlayerFit.cover;
+  Duration? _queuedSeekPosition;
+  Duration? _seekAnchor;
+  Future<void>? _activeSeek;
 
   @override
   void initState() {
@@ -108,7 +111,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         (_) => _reportProgress(),
       );
       _scheduleControlsHide();
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('Offline playback initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (mounted) setState(() => _error = _friendlyError(error));
     }
   }
@@ -138,24 +143,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _controller = controller;
         _error = null;
       });
+      unawaited(_prepareAutomaticPip(controller));
       _scheduleControlsHide();
     } catch (error) {
       if (mounted) setState(() => _error = _friendlyError(error));
     }
   }
 
-  Future<void> _openStream({
+  Future<bool> _openStream({
     required int startTicks,
     bool initialLoad = false,
   }) async {
     final client = _client;
     final itemId = _playingItemId;
-    if (client == null || itemId == null) return;
+    if (client == null || itemId == null) return false;
 
     final oldController = _controller;
     VideoPlayerController? pendingController;
     final resumePlayback = oldController?.value.isPlaying ?? true;
     if (!initialLoad) {
+      unawaited(VideoPlayerPip.disableAutomaticPip());
       _controlsTimer?.cancel();
       if (mounted) {
         setState(() {
@@ -229,7 +236,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       if (!mounted) {
         await controller.dispose();
-        return;
+        return false;
       }
       setState(() {
         _source = source;
@@ -240,6 +247,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _controlsVisible = true;
         _error = null;
       });
+      unawaited(_prepareAutomaticPip(controller));
       pendingController = null;
       // Platform views are swapped by the native compositor. Disposing the old
       // controller before the next frame can leave a valid stream audio-only.
@@ -247,7 +255,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await oldController?.dispose();
       await _reportStarted();
       _scheduleControlsHide();
-    } catch (error) {
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Media server playback initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
       await pendingController?.dispose();
       if (!initialLoad && resumePlayback) {
         await oldController?.play();
@@ -261,6 +272,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       if (!initialLoad && oldValues != null) await _reportStarted();
       _scheduleControlsHide();
+      return false;
     }
   }
 
@@ -291,6 +303,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } finally {
       _enteringPipMode = false;
     }
+  }
+
+  Future<void> _prepareAutomaticPip(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized || nativeCastController.connected) {
+      return;
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted ||
+        !identical(_controller, controller) ||
+        !controller.value.isPlaying) {
+      return;
+    }
+    final ratio = controller.value.aspectRatio;
+    const width = 360;
+    final height = ratio > 0 ? (width / ratio).round() : 203;
+    await VideoPlayerPip.prepareAutomaticPip(
+      controller,
+      width: width,
+      height: height,
+    );
   }
 
   @override
@@ -393,10 +425,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (controller.value.isPlaying) {
       _playbackRequested = false;
       await controller.pause();
+      unawaited(VideoPlayerPip.disableAutomaticPip());
       _controlsTimer?.cancel();
     } else {
       _playbackRequested = true;
       await controller.play();
+      unawaited(_prepareAutomaticPip(controller));
       _scheduleControlsHide();
     }
     if (mounted) setState(() {});
@@ -406,17 +440,51 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _seekRelative(Duration delta) async {
     final controller = _controller;
     if (controller == null) return;
+    final base =
+        _queuedSeekPosition ?? _seekAnchor ?? controller.value.position;
+    await _requestSeek(base + delta);
+  }
+
+  Future<void> _requestSeek(Duration requested) {
+    final controller = _controller;
+    if (controller == null) return Future.value();
     final duration = controller.value.duration;
-    final requested = controller.value.position + delta;
     final position = requested < Duration.zero
         ? Duration.zero
         : requested > duration
         ? duration
         : requested;
-    if (nativeCastController.connected) {
-      await nativeCastController.seek(position);
+    _queuedSeekPosition = position;
+    _seekAnchor = position;
+    final active = _activeSeek;
+    if (active != null) return active;
+
+    late final Future<void> operation;
+    operation = _drainSeekQueue().whenComplete(() {
+      if (identical(_activeSeek, operation)) {
+        _activeSeek = null;
+        if (_queuedSeekPosition == null) {
+          _seekAnchor = null;
+        } else {
+          unawaited(_requestSeek(_queuedSeekPosition!));
+        }
+      }
+    });
+    _activeSeek = operation;
+    return operation;
+  }
+
+  Future<void> _drainSeekQueue() async {
+    while (_queuedSeekPosition != null) {
+      final position = _queuedSeekPosition!;
+      _queuedSeekPosition = null;
+      final controller = _controller;
+      if (controller == null) return;
+      if (nativeCastController.connected) {
+        await nativeCastController.seek(position);
+      }
+      await controller.seekTo(position);
     }
-    await controller.seekTo(position);
     _showControls();
     unawaited(_reportProgress());
   }
@@ -436,17 +504,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     bool changeSubtitle = false,
     bool changeQuality = false,
   }) async {
+    if (_changingStream) return;
     final position = _positionTicks;
+    final previousAudioIndex = _audioStreamIndex;
+    final previousSubtitleIndex = _subtitleStreamIndex;
+    final previousBitrate = _maxStreamingBitrate;
     if (changeAudio) _audioStreamIndex = audioIndex;
     if (changeSubtitle) _subtitleStreamIndex = subtitleIndex;
     if (changeQuality) _maxStreamingBitrate = bitrate;
     if (mounted) setState(() {});
-    await _openStream(startTicks: position);
+    final changed = await _openStream(startTicks: position);
+    if (!changed) {
+      _audioStreamIndex = previousAudioIndex;
+      _subtitleStreamIndex = previousSubtitleIndex;
+      _maxStreamingBitrate = previousBitrate;
+      if (mounted) setState(() {});
+    }
   }
 
   void _handleCastState() {
     if (!mounted) return;
     if (nativeCastController.connected) {
+      unawaited(VideoPlayerPip.disableAutomaticPip());
       final controller = _controller;
       if (controller?.value.isPlaying == true) unawaited(controller!.pause());
       final castPosition = nativeCastController.position;
@@ -507,6 +586,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
     nativeCastController.removeListener(_handleCastState);
+    unawaited(VideoPlayerPip.disableAutomaticPip());
     final values = _reportValues;
     if (values != null) unawaited(_reportStopped(values));
     _controller?.dispose();
@@ -573,13 +653,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         volume: _volume,
                         onInteraction: _showControls,
                         onBack: () => Navigator.of(context).pop(),
-                        onSeek: (position) async {
-                          if (nativeCastController.connected) {
-                            await nativeCastController.seek(position);
-                          }
-                          await controller.seekTo(position);
-                          unawaited(_reportProgress());
-                        },
+                        onSeek: _requestSeek,
                         onVolumeChanged: _setVolume,
                         volumeExpanded: _volumeExpanded,
                         onToggleVolumePanel: () =>
@@ -915,16 +989,6 @@ class _PlayerControls extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, child) {
-        final value = controller.value;
-        final duration = value.duration;
-        final position = value.position > duration ? duration : value.position;
-        final remaining = duration - position;
-        final bufferedPosition = value.buffered.isEmpty
-            ? position
-            : value.buffered.last.end;
-        final bufferedMilliseconds = bufferedPosition.inMilliseconds
-            .clamp(position.inMilliseconds, duration.inMilliseconds)
-            .toDouble();
         final compact = MediaQuery.sizeOf(context).width < 650;
         return DecoratedBox(
           decoration: const BoxDecoration(
@@ -1011,56 +1075,115 @@ class _PlayerControls extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-                  child: Row(
-                    children: [
-                      Text(_formatDuration(position)),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            activeTrackColor: Colors.white,
-                            secondaryActiveTrackColor: Colors.white38,
-                            inactiveTrackColor: Colors.white24,
-                            thumbColor: Colors.white,
-                            overlayColor: Colors.white12,
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 5,
-                            ),
-                            overlayShape: const RoundSliderOverlayShape(
-                              overlayRadius: 13,
-                            ),
-                          ),
-                          child: Slider(
-                            value: position.inMilliseconds
-                                .clamp(0, duration.inMilliseconds)
-                                .toDouble(),
-                            secondaryTrackValue: bufferedMilliseconds,
-                            max: duration.inMilliseconds > 0
-                                ? duration.inMilliseconds.toDouble()
-                                : 1,
-                            onChangeStart: (_) => onInteraction(),
-                            onChanged: (milliseconds) {
-                              onInteraction();
-                              unawaited(
-                                controller.seekTo(
-                                  Duration(milliseconds: milliseconds.round()),
-                                ),
-                              );
-                            },
-                            onChangeEnd: (milliseconds) => onSeek(
-                              Duration(milliseconds: milliseconds.round()),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Text('-${_formatDuration(remaining)}'),
-                    ],
-                  ),
+                _PlaybackTimeline(
+                  controller: controller,
+                  onInteraction: onInteraction,
+                  onSeek: onSeek,
                 ),
               ],
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PlaybackTimeline extends StatefulWidget {
+  const _PlaybackTimeline({
+    required this.controller,
+    required this.onInteraction,
+    required this.onSeek,
+  });
+
+  final VideoPlayerController controller;
+  final VoidCallback onInteraction;
+  final Future<void> Function(Duration) onSeek;
+
+  @override
+  State<_PlaybackTimeline> createState() => _PlaybackTimelineState();
+}
+
+class _PlaybackTimelineState extends State<_PlaybackTimeline> {
+  Duration? _scrubPosition;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, child) {
+        final value = widget.controller.value;
+        final duration = value.duration;
+        final controllerPosition = value.position > duration
+            ? duration
+            : value.position;
+        final position = _scrubPosition ?? controllerPosition;
+        final remaining = duration - position;
+        final bufferedPosition = value.buffered.isEmpty
+            ? controllerPosition
+            : value.buffered.last.end;
+        final bufferedMilliseconds = bufferedPosition.inMilliseconds
+            .clamp(controllerPosition.inMilliseconds, duration.inMilliseconds)
+            .toDouble();
+        final maximum = duration.inMilliseconds > 0
+            ? duration.inMilliseconds.toDouble()
+            : 1.0;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: Row(
+            children: [
+              Text(_formatDuration(position)),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: Colors.white,
+                    secondaryActiveTrackColor: Colors.white38,
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: Colors.white,
+                    overlayColor: Colors.white12,
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 13,
+                    ),
+                  ),
+                  child: Slider(
+                    value: position.inMilliseconds
+                        .clamp(0, duration.inMilliseconds)
+                        .toDouble(),
+                    secondaryTrackValue: bufferedMilliseconds,
+                    max: maximum,
+                    onChangeStart: (milliseconds) {
+                      widget.onInteraction();
+                      setState(
+                        () => _scrubPosition = Duration(
+                          milliseconds: milliseconds.round(),
+                        ),
+                      );
+                    },
+                    onChanged: (milliseconds) {
+                      widget.onInteraction();
+                      setState(
+                        () => _scrubPosition = Duration(
+                          milliseconds: milliseconds.round(),
+                        ),
+                      );
+                    },
+                    onChangeEnd: (milliseconds) async {
+                      final target = Duration(
+                        milliseconds: milliseconds.round(),
+                      );
+                      setState(() => _scrubPosition = target);
+                      await widget.onSeek(target);
+                      if (mounted) setState(() => _scrubPosition = null);
+                    },
+                  ),
+                ),
+              ),
+              Text('-${_formatDuration(remaining)}'),
+            ],
           ),
         );
       },

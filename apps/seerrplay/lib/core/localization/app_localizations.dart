@@ -599,6 +599,13 @@ const _translations = <String, Map<String, String>>{
     'Play offline': 'Lire hors-ligne',
     'Delete download': 'Supprimer le téléchargement',
     'Downloading · {progress}%': 'Téléchargement · {progress} %',
+    'Downloading · {progress}% · {time} left':
+        'Téléchargement · {progress} % · reste {time}',
+    'Child mode': 'Mode enfant',
+    'Only shows content whose age rating is known and allowed.':
+        'Affiche uniquement les contenus dont la classification d’âge est connue et autorisée.',
+    'Maximum age rating': 'Classification d’âge maximale',
+    'Up to age {age}': 'Jusqu’à {age} ans',
     'Preparing download…': 'Préparation du téléchargement…',
     'Available offline · {size}': 'Disponible hors-ligne · {size}',
     'Available offline': 'Disponible hors-ligne',
@@ -616,6 +623,7 @@ const _translations = <String, Map<String, String>>{
         'Impossible de démarrer le téléchargement.',
     'Retry download': 'Réessayer le téléchargement',
     'Download': 'Télécharger',
+    'Download offline': 'Télécharger hors ligne',
     'Choose download quality': 'Choisir la qualité du téléchargement',
     'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.':
         'La taille est une estimation. Les copies compatibles sont transcodées par votre serveur multimédia avant la lecture hors-ligne.',
@@ -1126,6 +1134,13 @@ const _translations = <String, Map<String, String>>{
     'Play offline': 'Play offline',
     'Delete download': 'Delete download',
     'Downloading · {progress}%': 'Downloading · {progress}%',
+    'Downloading · {progress}% · {time} left':
+        'Downloading · {progress}% · {time} left',
+    'Child mode': 'Child mode',
+    'Only shows content whose age rating is known and allowed.':
+        'Only shows content whose age rating is known and allowed.',
+    'Maximum age rating': 'Maximum age rating',
+    'Up to age {age}': 'Up to age {age}',
     'Preparing download…': 'Preparing download…',
     'Available offline · {size}': 'Available offline · {size}',
     'Available offline': 'Available offline',
@@ -1142,6 +1157,7 @@ const _translations = <String, Map<String, String>>{
     'Unable to start the download.': 'Unable to start the download.',
     'Retry download': 'Retry download',
     'Download': 'Download',
+    'Download offline': 'Download offline',
     'Choose download quality': 'Choose download quality',
     'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.':
         'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.',
@@ -1662,6 +1678,13 @@ const _translations = <String, Map<String, String>>{
     'Play offline': 'Reproducir sin conexión',
     'Delete download': 'Eliminar descarga',
     'Downloading · {progress}%': 'Descargando · {progress}%',
+    'Downloading · {progress}% · {time} left':
+        'Descargando · {progress}% · quedan {time}',
+    'Child mode': 'Modo infantil',
+    'Only shows content whose age rating is known and allowed.':
+        'Solo muestra contenido con una clasificación de edad conocida y permitida.',
+    'Maximum age rating': 'Clasificación de edad máxima',
+    'Up to age {age}': 'Hasta {age} años',
     'Preparing download…': 'Preparando descarga…',
     'Available offline · {size}': 'Disponible sin conexión · {size}',
     'Available offline': 'Disponible sin conexión',
@@ -1678,6 +1701,7 @@ const _translations = <String, Map<String, String>>{
     'Unable to start the download.': 'No se puede iniciar la descarga.',
     'Retry download': 'Reintentar descarga',
     'Download': 'Descargar',
+    'Download offline': 'Descargar sin conexión',
     'Choose download quality': 'Elegir la calidad de descarga',
     'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.':
         'El tamaño es una estimación. El servidor multimedia transcodifica las copias compatibles antes de la reproducción sin conexión.',
@@ -2199,6 +2223,13 @@ const _translations = <String, Map<String, String>>{
     'Play offline': 'Riproduci offline',
     'Delete download': 'Elimina download',
     'Downloading · {progress}%': 'Download · {progress}%',
+    'Downloading · {progress}% · {time} left':
+        'Download · {progress}% · {time} rimanenti',
+    'Child mode': 'Modalità bambini',
+    'Only shows content whose age rating is known and allowed.':
+        'Mostra solo contenuti con una classificazione per età nota e consentita.',
+    'Maximum age rating': 'Classificazione massima per età',
+    'Up to age {age}': 'Fino a {age} anni',
     'Preparing download…': 'Preparazione download…',
     'Available offline · {size}': 'Disponibile offline · {size}',
     'Available offline': 'Disponibile offline',
@@ -2215,6 +2246,7 @@ const _translations = <String, Map<String, String>>{
     'Unable to start the download.': 'Impossibile avviare il download.',
     'Retry download': 'Riprova il download',
     'Download': 'Scarica',
+    'Download offline': 'Scarica offline',
     'Choose download quality': 'Scegli la qualità del download',
     'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.':
         'La dimensione è una stima. Il server multimediale transcodifica le copie compatibili prima della riproduzione offline.',
@@ -2746,6 +2778,13 @@ const _translations = <String, Map<String, String>>{
     'Play offline': 'Offline abspielen',
     'Delete download': 'Download löschen',
     'Downloading · {progress}%': 'Download · {progress} %',
+    'Downloading · {progress}% · {time} left':
+        'Download · {progress} % · noch {time}',
+    'Child mode': 'Kindermodus',
+    'Only shows content whose age rating is known and allowed.':
+        'Zeigt nur Inhalte mit bekannter und erlaubter Altersfreigabe.',
+    'Maximum age rating': 'Maximale Altersfreigabe',
+    'Up to age {age}': 'Bis {age} Jahre',
     'Preparing download…': 'Download wird vorbereitet…',
     'Available offline · {size}': 'Offline verfügbar · {size}',
     'Available offline': 'Offline verfügbar',
@@ -2764,6 +2803,7 @@ const _translations = <String, Map<String, String>>{
         'Der Download konnte nicht gestartet werden.',
     'Retry download': 'Download erneut versuchen',
     'Download': 'Herunterladen',
+    'Download offline': 'Offline herunterladen',
     'Choose download quality': 'Downloadqualität auswählen',
     'The size is an estimate. Compatible copies are transcoded by your media server before offline playback.':
         'Die Größe ist eine Schätzung. Der Medienserver transkodiert kompatible Kopien vor der Offline-Wiedergabe.',

@@ -93,7 +93,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     var id = widget.media.tmdbId;
     var kind = widget.media.kind;
     EpisodeMetadataContext? episodeContext;
-    var currentSeasonHasWatchedEpisode = false;
     if (kind == MediaKind.episode) {
       try {
         final mediaServer = ref.read(mediaServerClientProvider);
@@ -106,21 +105,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
         _episodeContext = episodeContext;
         id = episodeContext?.seriesTmdbId;
         kind = MediaKind.series;
-        if (episodeContext case final context?) {
-          try {
-            final episodes = await mediaServer.getSeriesEpisodes(
-              context.seriesId,
-              seasonNumber: context.seasonNumber,
-            );
-            currentSeasonHasWatchedEpisode = episodes.any(
-              (episode) => episode.userData?.played == true,
-            );
-          } on DioException {
-            currentSeasonHasWatchedEpisode = false;
-          } on FormatException {
-            currentSeasonHasWatchedEpisode = false;
-          }
-        }
       } on DioException {
         return const _DetailContent();
       } on FormatException {
@@ -174,7 +158,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       recommendations: recommendations,
       similar: similar,
       episodeContext: episodeContext,
-      currentSeasonHasWatchedEpisode: currentSeasonHasWatchedEpisode,
     );
   }
 
@@ -299,17 +282,37 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     }
   }
 
-  void _play(SeerrMediaDetails? details, {bool fromBeginning = false}) {
+  Future<void> _play(
+    SeerrMediaDetails? details, {
+    OfflineDownload? offlineDownload,
+    bool fromBeginning = false,
+  }) async {
     final playable = widget.media.copyWith(
       mediaServerItemId: widget.media.kind == MediaKind.episode
           ? widget.media.mediaServerItemId
           : details?.mediaInfo?.mediaServerItemId,
       isAvailable: true,
     );
+    final mediaServerItemId = playable.mediaServerItemId;
+    final localFile = offlineDownload?.status == OfflineDownloadStatus.completed
+        ? await ref
+              .read(downloadsControllerProvider.notifier)
+              .localFileForItem(offlineDownload!.downloadedItemId)
+        : mediaServerItemId == null
+        ? null
+        : await ref
+              .read(downloadsControllerProvider.notifier)
+              .localFileForItem(mediaServerItemId);
+    if (!mounted) return;
+    final playbackMedia = localFile == null
+        ? playable
+        : playable.copyWith(localFilePath: localFile.path);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) =>
-            PlayerScreen(media: playable, startFromBeginning: fromBeginning),
+        builder: (context) => PlayerScreen(
+          media: playbackMedia,
+          startFromBeginning: fromBeginning,
+        ),
       ),
     );
   }
@@ -497,6 +500,10 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   download.sourceItemId == downloadableMedia.mediaServerItemId,
             )
             .firstOrNull;
+        final isWatched =
+            _markedWatched ??
+            content.episodeContext?.episode.userData?.played ??
+            false;
         return Scaffold(
           body: CustomScrollView(
             slivers: [
@@ -505,6 +512,27 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                 pinned: true,
                 backgroundColor: AppColors.background,
                 surfaceTintColor: Colors.transparent,
+                actions: [
+                  if (isAvailable &&
+                      downloadableMedia.mediaServerItemId?.isNotEmpty == true)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Center(
+                        child: _PlaybackOptionsMenu(
+                          isWatched: isWatched,
+                          showDownload: featuredVideo?.url.isNotEmpty == true,
+                          offlineDownload: offlineDownload,
+                          onPlayFromBeginning: () => _play(
+                            details,
+                            offlineDownload: offlineDownload,
+                            fromBeginning: true,
+                          ),
+                          onSetWatched: _setWatched,
+                          onDownload: () => _download(downloadableMedia),
+                        ),
+                      ),
+                    ),
+                ],
                 flexibleSpace: _DetailHero(
                   title: details?.title ?? widget.media.title,
                   imageUrl:
@@ -531,18 +559,10 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                             media: downloadableMedia,
                             loading: _requesting,
                             requested: _requested,
-                            onPlay: () => _play(details),
-                            onPlayFromBeginning: () =>
-                                _play(details, fromBeginning: true),
-                            onSetWatched: _setWatched,
-                            isWatched:
-                                _markedWatched ??
-                                content
-                                    .episodeContext
-                                    ?.episode
-                                    .userData
-                                    ?.played ??
-                                false,
+                            onPlay: () => _play(
+                              details,
+                              offlineDownload: offlineDownload,
+                            ),
                             onRequest: _request,
                             onRetry: _retry,
                             onDeleteRequest: () =>
@@ -550,10 +570,6 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                             onDownload: () => _download(downloadableMedia),
                             offlineDownload: offlineDownload,
                             resume: widget.media.hasPlaybackProgress,
-                            hideTrailer:
-                                widget.media.hasPlaybackProgress ||
-                                content.currentSeasonHasWatchedEpisode ||
-                                _markedWatched == true,
                           ),
                           if (actionMedia.lifecycleStatus ==
                               MediaLifecycleStatus.downloading)
@@ -915,14 +931,12 @@ class _DetailContent {
     this.recommendations = const [],
     this.similar = const [],
     this.episodeContext,
-    this.currentSeasonHasWatchedEpisode = false,
   });
   final SeerrMediaDetails? details;
   final SeerrRatings? ratings;
   final List<MediaViewModel> recommendations;
   final List<MediaViewModel> similar;
   final EpisodeMetadataContext? episodeContext;
-  final bool currentSeasonHasWatchedEpisode;
 }
 
 class _DetailHero extends StatelessWidget {
@@ -1055,9 +1069,7 @@ class _DetailHero extends StatelessWidget {
                         if (releaseDate != null)
                           _HeroMetadata(
                             icon: Icons.calendar_today_outlined,
-                            label: MaterialLocalizations.of(
-                              context,
-                            ).formatMediumDate(releaseDate),
+                            label: _formatReleaseDate(context, releaseDate),
                           ),
                         if (details?.runtimeMinutes != null)
                           _HeroMetadata(
@@ -1307,7 +1319,98 @@ class _AvailabilityIndicatorState extends State<_AvailabilityIndicator>
   }
 }
 
-enum _PlaybackMenuAction { restart, toggleWatched }
+enum _PlaybackMenuAction { restart, toggleWatched, download }
+
+class _PlaybackOptionsMenu extends StatelessWidget {
+  const _PlaybackOptionsMenu({
+    required this.isWatched,
+    required this.showDownload,
+    required this.offlineDownload,
+    required this.onPlayFromBeginning,
+    required this.onSetWatched,
+    required this.onDownload,
+  });
+
+  final bool isWatched;
+  final bool showDownload;
+  final OfflineDownload? offlineDownload;
+  final VoidCallback onPlayFromBeginning;
+  final ValueChanged<bool> onSetWatched;
+  final VoidCallback onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.52),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: PopupMenuButton<_PlaybackMenuAction>(
+        tooltip: context.tr('More playback options'),
+        icon: const Icon(Icons.more_horiz_rounded, color: Colors.white),
+        onSelected: (action) {
+          switch (action) {
+            case _PlaybackMenuAction.restart:
+              onPlayFromBeginning();
+              break;
+            case _PlaybackMenuAction.toggleWatched:
+              onSetWatched(!isWatched);
+              break;
+            case _PlaybackMenuAction.download:
+              onDownload();
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: _PlaybackMenuAction.restart,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.replay_rounded),
+              title: Text(context.tr('Play from beginning')),
+            ),
+          ),
+          PopupMenuItem(
+            value: _PlaybackMenuAction.toggleWatched,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                isWatched ? Icons.remove_done_rounded : Icons.done_all_rounded,
+              ),
+              title: Text(
+                context.tr(isWatched ? 'Mark as unwatched' : 'Mark as watched'),
+              ),
+            ),
+          ),
+          if (showDownload)
+            PopupMenuItem(
+              value: _PlaybackMenuAction.download,
+              enabled:
+                  offlineDownload?.status !=
+                      OfflineDownloadStatus.downloading &&
+                  offlineDownload?.status != OfflineDownloadStatus.completed,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  offlineDownload?.status == OfflineDownloadStatus.completed
+                      ? Icons.offline_pin_rounded
+                      : Icons.download_for_offline_outlined,
+                ),
+                title: Text(
+                  context.tr(
+                    offlineDownload?.status == OfflineDownloadStatus.completed
+                        ? 'Available offline'
+                        : 'Download offline',
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class _PrimaryActions extends StatelessWidget {
   const _PrimaryActions({
@@ -1317,16 +1420,12 @@ class _PrimaryActions extends StatelessWidget {
     required this.loading,
     required this.requested,
     required this.onPlay,
-    required this.onPlayFromBeginning,
-    required this.onSetWatched,
-    required this.isWatched,
     required this.onRequest,
     required this.onRetry,
     required this.onDeleteRequest,
     required this.onDownload,
     required this.offlineDownload,
     required this.resume,
-    required this.hideTrailer,
   });
 
   final SeerrRelatedVideo? trailer;
@@ -1335,29 +1434,24 @@ class _PrimaryActions extends StatelessWidget {
   final bool loading;
   final bool requested;
   final VoidCallback onPlay;
-  final VoidCallback onPlayFromBeginning;
-  final ValueChanged<bool> onSetWatched;
-  final bool isWatched;
   final VoidCallback onRequest;
   final VoidCallback onRetry;
   final VoidCallback onDeleteRequest;
   final VoidCallback onDownload;
   final OfflineDownload? offlineDownload;
   final bool resume;
-  final bool hideTrailer;
 
   @override
   Widget build(BuildContext context) {
-    final trailerButton = trailer == null || hideTrailer
+    final trailerButton = trailer?.url.isNotEmpty != true
         ? null
         : OutlinedButton.icon(
-            onPressed: trailer!.url.isEmpty
-                ? null
-                : () => launchUrl(
-                    Uri.parse(trailer!.url),
-                    mode: LaunchMode.externalApplication,
-                  ),
-            icon: const Icon(Icons.play_circle_outline_rounded),
+            onPressed: () => launchUrl(
+              Uri.parse(trailer!.url),
+              mode: LaunchMode.externalApplication,
+            ),
+            style: _largeSecondaryActionStyle(),
+            icon: const Icon(Icons.play_circle_outline_rounded, size: 23),
             label: Text(context.tr('Watch trailer')),
           );
     final Widget? mediaButton =
@@ -1386,95 +1480,20 @@ class _PrimaryActions extends StatelessWidget {
               minimumSize: const Size.fromHeight(52),
             ),
           );
-    final playbackMenu =
-        isAvailable && media.mediaServerItemId?.isNotEmpty == true
-        ? PopupMenuButton<_PlaybackMenuAction>(
-            tooltip: context.tr('More playback options'),
-            icon: const Icon(Icons.more_horiz_rounded),
-            onSelected: (action) {
-              switch (action) {
-                case _PlaybackMenuAction.restart:
-                  onPlayFromBeginning();
-                  break;
-                case _PlaybackMenuAction.toggleWatched:
-                  onSetWatched(!isWatched);
-                  break;
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: _PlaybackMenuAction.restart,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.replay_rounded),
-                  title: Text(context.tr('Play from beginning')),
-                ),
-              ),
-              PopupMenuItem(
-                value: _PlaybackMenuAction.toggleWatched,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    isWatched
-                        ? Icons.remove_done_rounded
-                        : Icons.done_all_rounded,
-                  ),
-                  title: Text(
-                    context.tr(
-                      isWatched ? 'Mark as unwatched' : 'Mark as watched',
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          )
-        : null;
-    final Widget? primaryButton = mediaButton == null
-        ? null
-        : playbackMenu == null
-        ? mediaButton
-        : Row(
-            children: [
-              Expanded(child: mediaButton),
-              const SizedBox(width: 10),
-              SizedBox.square(
-                dimension: 52,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white24),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: playbackMenu,
-                ),
-              ),
-            ],
-          );
+    final primaryButton = mediaButton;
     final downloadButton =
-        isAvailable && media.mediaServerItemId?.isNotEmpty == true
+        trailerButton == null &&
+            isAvailable &&
+            media.mediaServerItemId?.isNotEmpty == true
         ? OutlinedButton.icon(
             onPressed:
                 offlineDownload?.status == OfflineDownloadStatus.downloading ||
                     offlineDownload?.status == OfflineDownloadStatus.completed
                 ? null
                 : onDownload,
-            icon: Icon(
-              offlineDownload?.status == OfflineDownloadStatus.completed
-                  ? Icons.offline_pin_rounded
-                  : Icons.download_for_offline_outlined,
-            ),
-            label: Text(switch (offlineDownload?.status) {
-              OfflineDownloadStatus.downloading => context.tr(
-                'Downloading · {progress}%',
-                arguments: {
-                  'progress': ((offlineDownload?.progress ?? 0) * 100).round(),
-                },
-              ),
-              OfflineDownloadStatus.completed => context.tr(
-                'Available offline',
-              ),
-              OfflineDownloadStatus.failed => context.tr('Retry download'),
-              null => context.tr('Download'),
-            }),
+            style: _largeSecondaryActionStyle(),
+            icon: Icon(_downloadIcon, size: 23),
+            label: Text(_downloadLabel(context)),
           )
         : null;
     final deleteRequestButton =
@@ -1503,35 +1522,14 @@ class _PrimaryActions extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (primaryButton == null && trailerButton != null)
-            SizedBox(width: double.infinity, child: trailerButton)
-          else if (trailerButton == null && primaryButton != null)
-            SizedBox(width: double.infinity, child: primaryButton)
-          else if (primaryButton != null && trailerButton != null)
-            LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth < 420) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      primaryButton,
-                      const SizedBox(height: 10),
-                      trailerButton,
-                    ],
-                  );
-                }
-                return Row(
-                  children: [
-                    Expanded(child: primaryButton),
-                    const SizedBox(width: 12),
-                    Expanded(child: trailerButton),
-                  ],
-                );
-              },
-            ),
-          if (downloadButton != null) ...[
+          if (primaryButton != null)
+            SizedBox(width: double.infinity, child: primaryButton),
+          if (trailerButton != null || downloadButton != null) ...[
             const SizedBox(height: 10),
-            downloadButton,
+            SizedBox(
+              width: double.infinity,
+              child: trailerButton ?? downloadButton!,
+            ),
           ],
           if (deleteRequestButton != null) ...[
             const SizedBox(height: 10),
@@ -1541,6 +1539,35 @@ class _PrimaryActions extends StatelessWidget {
       ),
     );
   }
+
+  ButtonStyle _largeSecondaryActionStyle() {
+    return OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      disabledForegroundColor: Colors.white38,
+      backgroundColor: Colors.white.withValues(alpha: 0.06),
+      minimumSize: const Size.fromHeight(52),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+    );
+  }
+
+  IconData get _downloadIcon =>
+      offlineDownload?.status == OfflineDownloadStatus.completed
+      ? Icons.offline_pin_rounded
+      : Icons.download_for_offline_outlined;
+
+  String _downloadLabel(BuildContext context) =>
+      switch (offlineDownload?.status) {
+        OfflineDownloadStatus.downloading => context.tr(
+          'Downloading · {progress}%',
+          arguments: {
+            'progress': ((offlineDownload?.progress ?? 0) * 100).round(),
+          },
+        ),
+        OfflineDownloadStatus.completed => context.tr('Available offline'),
+        OfflineDownloadStatus.failed => context.tr('Retry download'),
+        null => context.tr('Download offline'),
+      };
 }
 
 class _SeerrDownloadProgress extends StatelessWidget {
@@ -1791,16 +1818,12 @@ class _TechnicalDetails extends StatelessWidget {
       if (details.theatricalReleaseFor(region) != null)
         (
           context.tr('Release date'),
-          MaterialLocalizations.of(
-            context,
-          ).formatMediumDate(details.theatricalReleaseFor(region)!),
+          _formatReleaseDate(context, details.theatricalReleaseFor(region)!),
         ),
       if (details.videoReleaseFor(region) != null)
         (
           context.tr('Video release date'),
-          MaterialLocalizations.of(
-            context,
-          ).formatMediumDate(details.videoReleaseFor(region)!),
+          _formatReleaseDate(context, details.videoReleaseFor(region)!),
         ),
       if (details.certificationFor(region) != null)
         (context.tr('Age rating'), details.certificationFor(region)!),
@@ -2202,6 +2225,11 @@ String _regionForLocale(Locale locale) {
     'de' => 'DE',
     _ => 'US',
   };
+}
+
+String _formatReleaseDate(BuildContext context, DateTime date) {
+  final localizations = MaterialLocalizations.of(context);
+  return '${localizations.formatShortMonthDay(date)} ${date.year}';
 }
 
 String _formatBudget(int budget) {

@@ -34,6 +34,8 @@ class ConnectionProfile {
     required this.mediaServerBaseUrl,
     required this.mediaServerType,
     this.avatarIndex = 0,
+    this.childMode = false,
+    this.maximumContentAge = 12,
   });
 
   final String id;
@@ -42,6 +44,21 @@ class ConnectionProfile {
   final Uri mediaServerBaseUrl;
   final MediaServerType mediaServerType;
   final int avatarIndex;
+  final bool childMode;
+  final int maximumContentAge;
+
+  ConnectionProfile copyWith({bool? childMode, int? maximumContentAge}) {
+    return ConnectionProfile(
+      id: id,
+      name: name,
+      seerrBaseUrl: seerrBaseUrl,
+      mediaServerBaseUrl: mediaServerBaseUrl,
+      mediaServerType: mediaServerType,
+      avatarIndex: avatarIndex,
+      childMode: childMode ?? this.childMode,
+      maximumContentAge: maximumContentAge ?? this.maximumContentAge,
+    );
+  }
 
   static Uri parseServerUrl(String value) {
     final trimmed = value.trim();
@@ -65,6 +82,8 @@ class ConnectionProfile {
     'mediaServerBaseUrl': mediaServerBaseUrl.toString(),
     'mediaServerType': mediaServerType.name,
     'avatarIndex': avatarIndex,
+    'childMode': childMode,
+    'maximumContentAge': maximumContentAge,
   };
 
   factory ConnectionProfile.fromJson(Map<String, Object?> json) {
@@ -83,6 +102,8 @@ class ConnectionProfile {
                 (total, value) => total + value,
               ) %
               8,
+      childMode: json['childMode'] as bool? ?? false,
+      maximumContentAge: (json['maximumContentAge'] as num?)?.toInt() ?? 12,
     );
   }
 
