@@ -412,6 +412,21 @@ class PlexClient implements MediaServerClient {
   Map<String, String> playbackHeaders() => _headers;
 
   @override
+  Future<String?> fetchSubtitleText(
+    String itemId,
+    MediaServerSource source,
+    MediaStream stream,
+  ) async {
+    final path = stream.deliveryUrl;
+    if (path == null || path.isEmpty) return null;
+    final response = await _dio.getUri<String>(
+      _uri(path, {'X-Plex-Token': accessToken}),
+      options: Options(headers: _headers, responseType: ResponseType.plain),
+    );
+    return response.data;
+  }
+
+  @override
   Uri imageUri(
     String itemId, {
     String imageType = 'Primary',
@@ -654,6 +669,7 @@ class PlexClient implements MediaServerClient {
       width: _asInt(json['width']),
       height: _asInt(json['height']),
       bitRate: _asInt(json['bitrate']),
+      deliveryUrl: _asString(json['key']),
     );
   }
 

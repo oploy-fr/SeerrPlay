@@ -61,6 +61,13 @@ class _MetadataClient implements MediaServerClient {
   final Map<String, MediaServerItem> items;
 
   @override
+  Future<String?> fetchSubtitleText(
+    String itemId,
+    MediaServerSource source,
+    MediaStream stream,
+  ) async => null;
+
+  @override
   Future<MediaServerItem> getItemDetails(String itemId) async => items[itemId]!;
 
   @override

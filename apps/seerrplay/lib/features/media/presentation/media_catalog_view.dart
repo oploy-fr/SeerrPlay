@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
-import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
@@ -106,8 +105,7 @@ class _MediaCatalogViewState extends State<MediaCatalogView> {
   @override
   Widget build(BuildContext context) {
     final items = _visibleItems;
-    final desktop =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     final grid = GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(

@@ -27,7 +27,8 @@ struct ProfileSelectionView: View {
                                 }
                                 .frame(width: 210, height: 250)
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(TVMediaButtonStyle())
+                            .focusEffectDisabled()
                             .contextMenu {
                                 Button("Delete profile", role: .destructive) {
                                     app.deleteProfile(profile)
@@ -55,7 +56,8 @@ struct ProfileSelectionView: View {
                             }
                             .frame(width: 280, height: 250)
                         }
-                        .buttonStyle(.card)
+                        .buttonStyle(TVMediaButtonStyle())
+                        .focusEffectDisabled()
                     }
                     .padding(.horizontal, 30)
                     .padding(.vertical, 24)

@@ -418,6 +418,33 @@ class JellyfinClient implements MediaServerClient {
   }
 
   @override
+  Future<String?> fetchSubtitleText(
+    String itemId,
+    MediaServerSource source,
+    MediaStream stream,
+  ) async {
+    final session = _requireSession();
+    final response = await _dio.getUri<String>(
+      _uri(
+        [
+          'Videos',
+          itemId,
+          source.id,
+          'Subtitles',
+          '${stream.index}',
+          'Stream.vtt',
+        ],
+        query: {'api_key': session.accessToken},
+      ),
+      options: Options(
+        headers: _headers(token: session.accessToken),
+        responseType: ResponseType.plain,
+      ),
+    );
+    return response.data;
+  }
+
+  @override
   Uri imageUri(
     String itemId, {
     String imageType = 'Primary',
@@ -665,10 +692,10 @@ Map<String, Object> _nativeVideoProfile(int maxStreamingBitrate) => {
           },
   ],
   'SubtitleProfiles': [
-    {'Format': 'vtt', 'Method': 'Encode'},
-    {'Format': 'srt', 'Method': 'Encode'},
-    {'Format': 'ass', 'Method': 'Encode'},
-    {'Format': 'ssa', 'Method': 'Encode'},
+    {'Format': 'vtt', 'Method': 'External'},
+    {'Format': 'srt', 'Method': 'External'},
+    {'Format': 'ass', 'Method': 'External'},
+    {'Format': 'ssa', 'Method': 'External'},
     {'Format': 'pgs', 'Method': 'Encode'},
     {'Format': 'sub', 'Method': 'Encode'},
   ],

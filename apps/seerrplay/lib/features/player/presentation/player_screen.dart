@@ -10,6 +10,8 @@ import 'package:seerrplay/features/auth/application/client_providers.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media_server/data/media_server_client.dart';
+import 'package:seerrplay/features/player/domain/subtitle_cue.dart';
+import 'package:seerrplay/features/player/domain/subtitle_style_preferences.dart';
 import 'package:seerrplay/features/player/presentation/native_route_button.dart';
 import 'package:video_player/video_player.dart' show VideoViewType;
 import 'package:video_player_pip/index.dart';
@@ -55,6 +57,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   StreamSubscription<bool>? _pipSubscription;
   int? _audioStreamIndex;
   int? _subtitleStreamIndex;
+  List<SubtitleCue> _subtitleCues = const [];
+  bool _subtitleRenderedByServer = false;
+  int _subtitleLoadGeneration = 0;
+  SubtitleStylePreferences _subtitleStyle = const SubtitleStylePreferences();
   int? _maxStreamingBitrate;
   double _volume = 1;
   double _playbackSpeed = 1;
@@ -88,7 +94,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     nativeCastController.addListener(_handleCastState);
     if (isDesktopPlatform) unawaited(_loadFullscreenState());
+    unawaited(_loadSubtitleStyle());
     _initialize();
+  }
+
+  Future<void> _loadSubtitleStyle() async {
+    final style = await SubtitleStylePreferences.load();
+    if (mounted) setState(() => _subtitleStyle = style);
   }
 
   Future<void> _loadFullscreenState() async {
@@ -226,14 +238,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       // this also gives us a working stream to restore when negotiation fails.
       final forceTranscoding =
           !initialLoad &&
-          (_subtitleStreamIndex != null ||
+          ((_subtitleRenderedByServer && _subtitleStreamIndex != null) ||
               _audioStreamIndex != _source?.defaultAudioStreamIndex ||
               _maxStreamingBitrate != null);
       final playback = await client.getPlaybackInfo(
         itemId,
         startTimeTicks: startTicks,
         audioStreamIndex: initialLoad ? null : _audioStreamIndex,
-        subtitleStreamIndex: initialLoad ? null : _subtitleStreamIndex ?? -1,
+        subtitleStreamIndex:
+            _subtitleRenderedByServer && _subtitleStreamIndex != null
+            ? _subtitleStreamIndex
+            : -1,
         maxStreamingBitrate: _maxStreamingBitrate,
         forceTranscoding: forceTranscoding,
       );
@@ -299,6 +314,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await WidgetsBinding.instance.endOfFrame;
       await oldController?.dispose();
       await _reportStarted();
+      if (initialLoad && _subtitleStreamIndex != null) {
+        unawaited(
+          _activateSubtitle(_subtitleStreamIndex!, allowFallback: true),
+        );
+      }
       _scheduleControlsHide();
       return true;
     } catch (error, stackTrace) {
@@ -573,6 +593,55 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
+  Future<void> _activateSubtitle(
+    int? index, {
+    bool allowFallback = true,
+  }) async {
+    final generation = ++_subtitleLoadGeneration;
+    final source = _source;
+    final client = _client;
+    final itemId = _playingItemId;
+    final wasRenderedByServer = _subtitleRenderedByServer;
+    _subtitleStreamIndex = index;
+    _subtitleCues = const [];
+    _subtitleRenderedByServer = false;
+    if (mounted) setState(() {});
+
+    if (index == null || source == null || client == null || itemId == null) {
+      if (wasRenderedByServer) await _openStream(startTicks: _positionTicks);
+      return;
+    }
+
+    final stream = source.subtitleStreams
+        .where((candidate) => candidate.index == index)
+        .firstOrNull;
+    if (stream != null) {
+      try {
+        final text = await client.fetchSubtitleText(itemId, source, stream);
+        final cues = text == null
+            ? const <SubtitleCue>[]
+            : parseSubtitleCues(text);
+        if (generation != _subtitleLoadGeneration) return;
+        if (cues.isNotEmpty) {
+          _subtitleCues = cues;
+          if (mounted) setState(() {});
+          if (wasRenderedByServer) {
+            await _openStream(startTicks: _positionTicks);
+          }
+          return;
+        }
+      } catch (error) {
+        debugPrint('Client subtitle loading failed: $error');
+      }
+    }
+
+    if (generation != _subtitleLoadGeneration) return;
+    if (!allowFallback) return;
+    _subtitleRenderedByServer = true;
+    if (mounted) setState(() {});
+    await _openStream(startTicks: _positionTicks);
+  }
+
   void _handleCastState() {
     if (!mounted) return;
     if (nativeCastController.connected) {
@@ -613,7 +682,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         },
         onSubtitleChanged: (index) async {
           Navigator.of(context).pop();
-          await _changeStream(subtitleIndex: index, changeSubtitle: true);
+          await _activateSubtitle(index);
         },
         onQualityChanged: (bitrate) async {
           Navigator.of(context).pop();
@@ -671,7 +740,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         body: _error != null && controller == null
             ? _PlayerError(message: _error!, onRetry: _initialize)
             : controller == null
-            ? const Center(child: CircularProgressIndicator())
+            ? _PlayerLoadingOverlay(
+                title: widget.media.title,
+                onBack: () => Navigator.of(context).pop(),
+              )
             : CallbackShortcuts(
                 bindings: {
                   const SingleActivator(LogicalKeyboardKey.space): () =>
@@ -732,6 +804,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               controller: controller,
                               fit: _playerFit.fit,
                             ),
+                          if (!nativeCastController.airPlayConnected &&
+                              !nativeCastController.connected &&
+                              _subtitleCues.isNotEmpty)
+                            _SubtitleOverlay(
+                              controller: controller,
+                              cues: _subtitleCues,
+                              preferences: _subtitleStyle,
+                              controlsVisible: _controlsVisible,
+                            ),
                           if (_controlsVisible &&
                               !_changingStream &&
                               !_isInPipMode)
@@ -770,6 +851,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             ),
                           if (!_changingStream && !_isInPipMode)
                             _CentralPlaybackOverlay(
+                              title: widget.media.title,
                               controller: controller,
                               controlsVisible: _controlsVisible,
                               playbackExpected:
@@ -777,6 +859,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   !nativeCastController.connected,
                               isCasting: nativeCastController.connected,
                               castPlaying: nativeCastController.playing,
+                              onBack: () => Navigator.of(context).pop(),
                               onTogglePlayback: _togglePlayback,
                               onRewind: () =>
                                   _seekRelative(const Duration(seconds: -10)),
@@ -784,14 +867,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   _seekRelative(const Duration(seconds: 10)),
                             ),
                           if (_changingStream)
-                            const Positioned.fill(
-                              child: AbsorbPointer(
-                                child: ColoredBox(
-                                  color: Color(0x99000000),
-                                  child: Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                ),
+                            Positioned.fill(
+                              child: _PlayerLoadingOverlay(
+                                title: widget.media.title,
+                                backgroundColor: const Color(0xCC000000),
+                                onBack: () => Navigator.of(context).pop(),
                               ),
                             ),
                           if (_error != null)
@@ -838,21 +918,25 @@ class _PlaybackReportValues {
 
 class _CentralPlaybackOverlay extends StatefulWidget {
   const _CentralPlaybackOverlay({
+    required this.title,
     required this.controller,
     required this.controlsVisible,
     required this.playbackExpected,
     required this.isCasting,
     required this.castPlaying,
+    required this.onBack,
     required this.onTogglePlayback,
     required this.onRewind,
     required this.onForward,
   });
 
+  final String title;
   final VideoPlayerController controller;
   final bool controlsVisible;
   final bool playbackExpected;
   final bool isCasting;
   final bool castPlaying;
+  final VoidCallback onBack;
   final Future<void> Function() onTogglePlayback;
   final Future<void> Function() onRewind;
   final Future<void> Function() onForward;
@@ -931,14 +1015,17 @@ class _CentralPlaybackOverlayState extends State<_CentralPlaybackOverlay> {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 650;
+    if (_visible) {
+      return _PlayerLoadingOverlay(
+        title: widget.title,
+        onBack: widget.onBack,
+        backgroundColor: Colors.transparent,
+        showHeader: !widget.controlsVisible,
+        blockInteraction: false,
+      );
+    }
     return Center(
-      child: _visible
-          ? const SizedBox(
-              width: 34,
-              height: 34,
-              child: CircularProgressIndicator(strokeWidth: 3),
-            )
-          : widget.controlsVisible
+      child: widget.controlsVisible
           ? Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -971,6 +1058,75 @@ class _CentralPlaybackOverlayState extends State<_CentralPlaybackOverlay> {
   }
 }
 
+class _PlayerLoadingOverlay extends StatelessWidget {
+  const _PlayerLoadingOverlay({
+    required this.title,
+    required this.onBack,
+    this.backgroundColor = Colors.black,
+    this.showHeader = true,
+    this.blockInteraction = true,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+  final Color backgroundColor;
+  final bool showHeader;
+  final bool blockInteraction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (blockInteraction)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {},
+            child: ColoredBox(color: backgroundColor),
+          )
+        else if (backgroundColor != Colors.transparent)
+          IgnorePointer(child: ColoredBox(color: backgroundColor)),
+        const IgnorePointer(
+          child: Center(
+            child: SizedBox.square(
+              dimension: 36,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+          ),
+        ),
+        if (showHeader)
+          SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: context.tr('Back'),
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _FittedVideo extends StatelessWidget {
   const _FittedVideo({required this.controller, required this.fit});
 
@@ -989,6 +1145,118 @@ class _FittedVideo extends StatelessWidget {
           child: VideoPlayer(
             controller,
             key: ValueKey<int>(controller.playerId),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtitleOverlay extends StatefulWidget {
+  const _SubtitleOverlay({
+    required this.controller,
+    required this.cues,
+    required this.preferences,
+    required this.controlsVisible,
+  });
+
+  final VideoPlayerController controller;
+  final List<SubtitleCue> cues;
+  final SubtitleStylePreferences preferences;
+  final bool controlsVisible;
+
+  @override
+  State<_SubtitleOverlay> createState() => _SubtitleOverlayState();
+}
+
+class _SubtitleOverlayState extends State<_SubtitleOverlay> {
+  String? _text;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_updateCue);
+    _updateCue();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubtitleOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_updateCue);
+      widget.controller.addListener(_updateCue);
+    }
+    if (oldWidget.cues != widget.cues) _updateCue();
+  }
+
+  void _updateCue() {
+    final position = widget.controller.value.position;
+    var low = 0;
+    var high = widget.cues.length - 1;
+    SubtitleCue? active;
+    while (low <= high) {
+      final middle = (low + high) >> 1;
+      final cue = widget.cues[middle];
+      if (position < cue.start) {
+        high = middle - 1;
+      } else if (position > cue.end) {
+        low = middle + 1;
+      } else {
+        active = cue;
+        break;
+      }
+    }
+    final text = active?.text;
+    if (text != _text && mounted) setState(() => _text = text);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_updateCue);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _text;
+    if (text == null) return const SizedBox.shrink();
+    final compact = MediaQuery.sizeOf(context).width < 700;
+    final baseSize = compact ? 20.0 : 28.0;
+    return IgnorePointer(
+      child: SafeArea(
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            widget.controlsVisible ? (compact ? 92 : 118) : 26,
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: widget.preferences.background.color,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                child: Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: widget.preferences.color.color,
+                    fontSize: baseSize * widget.preferences.size.scale,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    shadows: const [
+                      Shadow(color: Colors.black, blurRadius: 3),
+                      Shadow(color: Colors.black, offset: Offset(1, 1)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

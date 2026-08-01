@@ -61,7 +61,8 @@ struct RequestsView: View {
                                                 .foregroundStyle(statusColor(request.status))
                                         }
                                     }
-                                    .buttonStyle(.card)
+                                    .buttonStyle(TVMediaButtonStyle())
+                                    .focusEffectDisabled()
                                     .contextMenu {
                                         if request.status == .pending {
                                             Button("Delete request", role: .destructive) {

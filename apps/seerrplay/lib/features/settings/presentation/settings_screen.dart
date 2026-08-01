@@ -10,6 +10,7 @@ import 'package:seerrplay/core/localization/locale_controller.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
 import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/notifications/application/request_notification_service.dart';
+import 'package:seerrplay/features/player/domain/subtitle_style_preferences.dart';
 import 'package:seerrplay/features/profiles/domain/connection_profile.dart';
 import 'package:seerrplay/features/profiles/presentation/profile_avatar.dart';
 import 'package:seerrplay/features/settings/presentation/credits_screen.dart';
@@ -288,6 +289,7 @@ class _PreferencesSection extends StatelessWidget {
       child: _SettingsRows(
         children: [
           const _LanguageRow(),
+          const _SubtitleAppearanceRow(),
           if (supportsBackgroundRequestPolling) const _NotificationsRow(),
           _ChildModeRow(
             profile: activeProfile,
@@ -295,6 +297,185 @@ class _PreferencesSection extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SubtitleAppearanceRow extends StatefulWidget {
+  const _SubtitleAppearanceRow();
+
+  @override
+  State<_SubtitleAppearanceRow> createState() => _SubtitleAppearanceRowState();
+}
+
+class _SubtitleAppearanceRowState extends State<_SubtitleAppearanceRow> {
+  SubtitleStylePreferences? _style;
+
+  @override
+  void initState() {
+    super.initState();
+    SubtitleStylePreferences.load().then((style) {
+      if (mounted) setState(() => _style = style);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _style;
+    final summary = style == null
+        ? null
+        : [
+            context.tr(style.size.label),
+            context.tr(style.color.label),
+            context.tr(style.background.label),
+          ].join(' · ');
+    return _SettingsRowShell(
+      icon: Icons.subtitles_outlined,
+      title: context.tr('Subtitle appearance'),
+      subtitle: context.tr('Size, color and background used during playback.'),
+      trailing: summary == null
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : _TrailingValue(label: summary),
+      onTap: style == null ? null : () => _showEditor(style),
+    );
+  }
+
+  Future<void> _showEditor(SubtitleStylePreferences initialStyle) async {
+    var draft = initialStyle;
+    final selected = await showDialog<SubtitleStylePreferences>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(context.tr('Subtitle appearance')),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _SubtitleStyleChoice<SubtitleSize>(
+                    title: context.tr('Subtitle size'),
+                    values: SubtitleSize.values,
+                    selected: draft.size,
+                    label: (value) => context.tr(value.label),
+                    onSelected: (value) => setDialogState(
+                      () => draft = draft.copyWith(size: value),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  _SubtitleStyleChoice<SubtitleColor>(
+                    title: context.tr('Subtitle color'),
+                    values: SubtitleColor.values,
+                    selected: draft.color,
+                    label: (value) => context.tr(value.label),
+                    avatar: (value) =>
+                        CircleAvatar(radius: 8, backgroundColor: value.color),
+                    onSelected: (value) => setDialogState(
+                      () => draft = draft.copyWith(color: value),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  _SubtitleStyleChoice<SubtitleBackground>(
+                    title: context.tr('Subtitle background'),
+                    values: SubtitleBackground.values,
+                    selected: draft.background,
+                    label: (value) => context.tr(value.label),
+                    onSelected: (value) => setDialogState(
+                      () => draft = draft.copyWith(background: value),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: draft.background.color,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          context.tr('Subtitle preview'),
+                          style: TextStyle(
+                            color: draft.color.color,
+                            fontSize: 22 * draft.size.scale,
+                            fontWeight: FontWeight.w600,
+                            shadows: const [
+                              Shadow(color: Colors.black, blurRadius: 3),
+                              Shadow(color: Colors.black, offset: Offset(1, 1)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(context.tr('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(draft),
+              child: Text(context.tr('Save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await selected.save();
+    if (mounted) setState(() => _style = selected);
+  }
+}
+
+class _SubtitleStyleChoice<T> extends StatelessWidget {
+  const _SubtitleStyleChoice({
+    required this.title,
+    required this.values,
+    required this.selected,
+    required this.label,
+    required this.onSelected,
+    this.avatar,
+  });
+
+  final String title;
+  final List<T> values;
+  final T selected;
+  final String Function(T value) label;
+  final Widget Function(T value)? avatar;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final value in values)
+              ChoiceChip(
+                avatar: avatar?.call(value),
+                label: Text(label(value)),
+                selected: selected == value,
+                onSelected: (_) => onSelected(value),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

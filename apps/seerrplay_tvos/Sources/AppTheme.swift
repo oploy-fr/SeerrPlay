@@ -49,6 +49,22 @@ struct PageBackground: View {
     }
 }
 
+struct TVMediaButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var isFocused
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : (isFocused ? 1.045 : 1))
+            .shadow(
+                color: isFocused ? .black.opacity(0.55) : .clear,
+                radius: 18,
+                y: 10
+            )
+            .animation(.easeOut(duration: 0.16), value: isFocused)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
 struct AvailabilityBadge: View {
     let availability: Availability
 

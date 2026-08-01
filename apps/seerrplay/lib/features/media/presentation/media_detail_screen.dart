@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/localization/locale_controller.dart';
-import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
 import 'package:seerrplay/features/downloads/application/downloads_controller.dart';
 import 'package:seerrplay/features/downloads/domain/offline_download.dart';
@@ -505,8 +505,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
             _markedWatched ??
             content.episodeContext?.episode.userData?.played ??
             false;
-        final desktop =
-            isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+        final desktop = AppPageLayout.usesLargeScreenLayout(context);
         return Scaffold(
           body: CustomScrollView(
             slivers: [
@@ -970,8 +969,7 @@ class _DetailHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final releaseDate = details?.theatricalReleaseFor(region);
     final certification = details?.certificationFor(region);
-    final desktop =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final expanded = constraints.maxHeight > 220;

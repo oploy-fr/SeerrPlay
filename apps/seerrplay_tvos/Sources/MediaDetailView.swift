@@ -209,7 +209,8 @@ struct MediaDetailView: View {
                                 }
                                 .frame(width: 180, alignment: .leading)
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(TVMediaButtonStyle())
+                            .focusEffectDisabled()
                         }
                     }
                     .padding(.vertical, 18)

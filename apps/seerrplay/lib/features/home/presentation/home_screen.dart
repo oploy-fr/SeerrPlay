@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/app/presentation/app_navigation_bar.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
-import 'package:seerrplay/core/platform/platform_capabilities.dart';
 import 'package:seerrplay/core/theme/app_theme.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/core/widgets/seerr_brand_logo.dart';
 import 'package:seerrplay/features/auth/application/app_session_controller.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
@@ -99,7 +99,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 900) {
+        if (!AppPageLayout.usesLargeScreenLayout(context)) {
           return Scaffold(
             extendBody: true,
             body: content,
@@ -225,7 +225,7 @@ class _DesktopTopNavigation extends StatelessWidget {
   }
 }
 
-class _DesktopNavigationButton extends StatelessWidget {
+class _DesktopNavigationButton extends StatefulWidget {
   const _DesktopNavigationButton({
     required this.destination,
     required this.selected,
@@ -237,44 +237,63 @@ class _DesktopNavigationButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_DesktopNavigationButton> createState() =>
+      _DesktopNavigationButtonState();
+}
+
+class _DesktopNavigationButtonState extends State<_DesktopNavigationButton> {
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
-    final foreground = selected ? Colors.white : Colors.white60;
-    final icon = Icon(destination.icon, size: 20, color: foreground);
+    final foreground = widget.selected || _focused
+        ? Colors.white
+        : Colors.white60;
+    final icon = Icon(widget.destination.icon, size: 20, color: foreground);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        hoverColor: Colors.white.withValues(alpha: 0.04),
+        hoverColor: Colors.transparent,
+        focusColor: Colors.transparent,
         highlightColor: Colors.white.withValues(alpha: 0.04),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              destination.badge > 0
-                  ? Badge.count(
-                      count: destination.badge,
-                      backgroundColor: AppColors.magenta,
-                      child: icon,
-                    )
-                  : icon,
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  destination.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: foreground,
-                    fontSize: 14,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    letterSpacing: 0.15,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _focused ? 1.045 : 1,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                widget.destination.badge > 0
+                    ? Badge.count(
+                        count: widget.destination.badge,
+                        backgroundColor: AppColors.magenta,
+                        child: icon,
+                      )
+                    : icon,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    widget.destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: foreground,
+                      fontSize: 14,
+                      fontWeight: widget.selected
+                          ? FontWeight.w700
+                          : FontWeight.w600,
+                      letterSpacing: 0.15,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -359,8 +378,7 @@ class _HomeDashboard extends ConsumerWidget {
     final session = ref.watch(appSessionControllerProvider).requireValue;
     final content = ref.watch(homeContentProvider);
     final availableRequests = ref.watch(availableUnwatchedRequestsProvider);
-    final desktop =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     final sectionSpacing = desktop ? 44.0 : 30.0;
     return Scaffold(
       appBar: desktop
@@ -679,8 +697,7 @@ class _CategoryButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (categories.isEmpty) return const SizedBox.shrink();
-    final desktop =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     return SizedBox(
       height: desktop ? 132 : 104,
       child: ListView.separated(
@@ -857,7 +874,7 @@ class _TrendingHeroSliderState extends State<_TrendingHeroSlider> {
     final items = widget.items.take(8).toList(growable: false);
     if (items.isEmpty) return const SizedBox.shrink();
     final width = MediaQuery.sizeOf(context).width;
-    final desktop = isDesktopPlatform && width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     final height = desktop
         ? 500.0
         : width >= 900
@@ -920,8 +937,7 @@ class _TrendingHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop =
-        isDesktopPlatform && MediaQuery.sizeOf(context).width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     return InkWell(
       borderRadius: BorderRadius.circular(desktop ? 30 : 24),
       onTap: onTap,

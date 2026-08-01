@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:seerrplay/core/platform/platform_capabilities.dart';
+import 'package:seerrplay/core/widgets/app_page_layout.dart';
 import 'package:seerrplay/core/widgets/desktop_hover_scale.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media/presentation/media_poster_card.dart';
@@ -22,7 +22,7 @@ class MediaRail extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
     final width = MediaQuery.sizeOf(context).width;
-    final desktop = isDesktopPlatform && width >= 1000;
+    final desktop = AppPageLayout.usesLargeScreenLayout(context);
     final isWide = width >= 900;
     final cardWidth = landscape
         ? desktop

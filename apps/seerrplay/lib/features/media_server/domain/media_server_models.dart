@@ -297,6 +297,7 @@ class MediaStream {
     this.width,
     this.height,
     this.bitRate,
+    this.deliveryUrl,
   });
 
   factory MediaStream.fromJson(Map<String, dynamic> json) {
@@ -320,6 +321,7 @@ class MediaStream {
       width: _asInt(json['Width']),
       height: _asInt(json['Height']),
       bitRate: _asInt(json['BitRate']),
+      deliveryUrl: _asString(json['DeliveryUrl']),
     );
   }
 
@@ -336,6 +338,7 @@ class MediaStream {
   final int? width;
   final int? height;
   final int? bitRate;
+  final String? deliveryUrl;
 
   String get label {
     final explicitTitle = displayTitle?.trim();

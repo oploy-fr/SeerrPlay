@@ -42,7 +42,8 @@ struct SearchView: View {
                                     } label: {
                                         MediaPosterCard(item: item, width: 190)
                                     }
-                                    .buttonStyle(.card)
+                                    .buttonStyle(TVMediaButtonStyle())
+                                    .focusEffectDisabled()
                                 }
                             }
                             .padding(70)

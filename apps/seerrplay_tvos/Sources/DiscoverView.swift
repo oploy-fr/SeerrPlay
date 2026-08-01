@@ -50,7 +50,8 @@ struct DiscoverView: View {
                                     } label: {
                                         MediaPosterCard(item: item, width: 190)
                                     }
-                                    .buttonStyle(.card)
+                                    .buttonStyle(TVMediaButtonStyle())
+                                    .focusEffectDisabled()
                                 }
                             }
                             .padding(.vertical, 20)

@@ -41,7 +41,6 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationTitle("Home")
         }
         .task { await load() }
         .refreshable { await load() }
@@ -102,7 +101,8 @@ private struct FeaturedMedia: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 34))
         }
-        .buttonStyle(.card)
+        .buttonStyle(TVMediaButtonStyle())
+        .focusEffectDisabled()
     }
 }
 
@@ -122,7 +122,8 @@ struct MediaRail: View {
                             } label: {
                                 MediaPosterCard(item: item)
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(TVMediaButtonStyle())
+                            .focusEffectDisabled()
                         }
                     }
                     .padding(.vertical, 18)
@@ -148,7 +149,8 @@ struct MediaServerRail: View {
                             } label: {
                                 MediaServerPosterCard(item: item)
                             }
-                            .buttonStyle(.card)
+                            .buttonStyle(TVMediaButtonStyle())
+                            .focusEffectDisabled()
                         }
                     }
                     .padding(.vertical, 18)

@@ -49,6 +49,12 @@ abstract interface class MediaServerClient {
   Uri playbackUri(String itemId, MediaServerSource source);
   Map<String, String> playbackHeaders();
 
+  Future<String?> fetchSubtitleText(
+    String itemId,
+    MediaServerSource source,
+    MediaStream stream,
+  );
+
   Uri imageUri(
     String itemId, {
     String imageType = 'Primary',
