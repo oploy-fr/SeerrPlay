@@ -62,6 +62,45 @@ void main() {
       expect(profile.avatarIndex, inInclusiveRange(0, 7));
     });
 
+    test('restores the legacy Jellyfin URL field', () {
+      final profile = ConnectionProfile.fromJson({
+        'id': 'legacy-jellyfin',
+        'name': 'Legacy Jellyfin',
+        'seerrBaseUrl': 'https://seerr.example.test',
+        'jellyfinBaseUrl': 'https://jellyfin.example.test/',
+      });
+
+      expect(
+        profile.mediaServerBaseUrl,
+        Uri.parse('https://jellyfin.example.test'),
+      );
+    });
+
+    test('skips damaged entries without losing valid profiles', () {
+      final profiles = ConnectionProfile.decodeList('''
+        [
+          {"id":"broken","name":"Broken"},
+          {
+            "id":"home",
+            "name":"Home",
+            "seerrBaseUrl":"https://seerr.example.test",
+            "mediaServerBaseUrl":"https://media.example.test",
+            "avatarIndex":"invalid",
+            "childMode":"invalid",
+            "maximumContentAge":99
+          }
+        ]
+      ''');
+
+      expect(profiles.map((profile) => profile.id), ['home']);
+      expect(profiles.single.childMode, isFalse);
+      expect(profiles.single.maximumContentAge, 18);
+    });
+
+    test('returns an empty list for invalid persisted JSON', () {
+      expect(ConnectionProfile.decodeList('{not-json'), isEmpty);
+    });
+
     test('persists child restrictions', () {
       final profile = ConnectionProfile(
         id: 'children',

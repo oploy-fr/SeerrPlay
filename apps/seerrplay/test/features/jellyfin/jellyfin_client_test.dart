@@ -191,6 +191,7 @@ void main() {
 
     final playback = await client.getPlaybackInfo(
       'movie-1',
+      mediaSourceId: 'source-1',
       audioStreamIndex: 2,
       subtitleStreamIndex: 4,
       maxStreamingBitrate: 10000000,
@@ -214,10 +215,15 @@ void main() {
       '2',
     );
     expect(
+      adapter.requests.single.uri.queryParameters['MediaSourceId'],
+      'source-1',
+    );
+    expect(
       adapter.requests.single.uri.queryParameters['SubtitleStreamIndex'],
       '4',
     );
     expect(adapter.requests.single.data['MaxStreamingBitrate'], 10000000);
+    expect(adapter.requests.single.data['MediaSourceId'], 'source-1');
     expect(adapter.requests.single.data['EnableDirectPlay'], isFalse);
     expect(adapter.requests.single.data['EnableDirectStream'], isFalse);
   });

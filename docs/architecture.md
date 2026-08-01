@@ -28,6 +28,12 @@ The `app` folder contains application-wide composition such as the root
 navigation. The `core` folder is limited to cross-feature concerns such as
 localization, theme, and reusable branding widgets.
 
+Large presentation screens keep navigation and state orchestration in their
+main `*_screen.dart` file. Screen-specific surfaces, controls, sheets, and
+sections live in adjacent `part` files. This keeps those implementation details
+library-private without exposing reusable-looking public APIs that are only
+valid inside one screen.
+
 ## Dependency direction
 
 Presentation reads application providers and domain models. Application code

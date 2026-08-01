@@ -150,6 +150,7 @@ class _NativeRouteButtonState extends State<NativeRouteButton> {
       await nativeCastController.refreshAirPlayStatus();
       return;
     }
+    if (defaultTargetPlatform != TargetPlatform.android) return;
     await nativeCastController.configure(
       streamUrl: widget.streamUrl,
       title: widget.title,

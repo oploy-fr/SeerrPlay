@@ -87,23 +87,36 @@ class ConnectionProfile {
   };
 
   factory ConnectionProfile.fromJson(Map<String, Object?> json) {
+    final id = json['id'];
+    final name = json['name'];
+    final seerrUrl = json['seerrBaseUrl'];
+    final mediaServerUrl =
+        json['mediaServerBaseUrl'] ?? json['jellyfinBaseUrl'];
+    if (id is! String ||
+        id.isEmpty ||
+        name is! String ||
+        seerrUrl is! String ||
+        mediaServerUrl is! String) {
+      throw const FormatException('Invalid connection profile');
+    }
+    final storedAvatarIndex = json['avatarIndex'];
+    final storedChildMode = json['childMode'];
+    final storedMaximumAge = json['maximumContentAge'];
     return ConnectionProfile(
-      id: json['id']! as String,
-      name: json['name']! as String,
-      seerrBaseUrl: Uri.parse(json['seerrBaseUrl']! as String),
-      mediaServerBaseUrl: Uri.parse(
-        (json['mediaServerBaseUrl'] ?? json['mediaServerBaseUrl'])! as String,
-      ),
+      id: id,
+      name: name,
+      seerrBaseUrl: parseServerUrl(seerrUrl),
+      mediaServerBaseUrl: parseServerUrl(mediaServerUrl),
       mediaServerType: MediaServerType.fromJson(json['mediaServerType']),
       avatarIndex:
-          (json['avatarIndex'] as num?)?.toInt() ??
-          (json['id']! as String).codeUnits.fold<int>(
-                0,
-                (total, value) => total + value,
-              ) %
-              8,
-      childMode: json['childMode'] as bool? ?? false,
-      maximumContentAge: (json['maximumContentAge'] as num?)?.toInt() ?? 12,
+          (storedAvatarIndex is num ? storedAvatarIndex.toInt() : null) ??
+          id.codeUnits.fold<int>(0, (total, value) => total + value) % 8,
+      childMode: storedChildMode is bool ? storedChildMode : false,
+      maximumContentAge:
+          (storedMaximumAge is num ? storedMaximumAge.toInt() : 12).clamp(
+            0,
+            18,
+          ),
     );
   }
 
@@ -113,13 +126,23 @@ class ConnectionProfile {
 
   static List<ConnectionProfile> decodeList(String? value) {
     if (value == null || value.isEmpty) return const [];
-    final decoded = jsonDecode(value) as List<dynamic>;
-    return decoded
-        .map(
-          (item) => ConnectionProfile.fromJson(
-            Map<String, Object?>.from(item as Map<dynamic, dynamic>),
-          ),
-        )
-        .toList(growable: false);
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! List) return const [];
+      final profiles = <ConnectionProfile>[];
+      for (final item in decoded.whereType<Map>()) {
+        try {
+          profiles.add(
+            ConnectionProfile.fromJson(Map<String, Object?>.from(item)),
+          );
+        } on FormatException {
+          // A single damaged legacy profile must not prevent app startup or
+          // access to the other valid profiles stored beside it.
+        }
+      }
+      return profiles;
+    } on FormatException {
+      return const [];
+    }
   }
 }

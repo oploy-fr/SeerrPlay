@@ -69,6 +69,7 @@ class DownloadProgressService {
     required String destinationPath,
     required String title,
     required int estimatedBytes,
+    required bool preferEstimatedTotal,
   }) {
     return _methodChannel.invokeMethod<void>('start', {
       'id': id,
@@ -77,6 +78,7 @@ class DownloadProgressService {
       'destinationPath': destinationPath,
       'title': title,
       'estimatedBytes': estimatedBytes,
+      'preferEstimatedTotal': preferEstimatedTotal,
     });
   }
 

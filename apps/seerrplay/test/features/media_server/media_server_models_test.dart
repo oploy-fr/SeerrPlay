@@ -75,4 +75,16 @@ void main() {
     expect(source.subtitleStreams.single.label, 'Forced English');
     expect(source.subtitleStreams.single.isForced, isTrue);
   });
+
+  test('keeps the requested media source during playback renegotiation', () {
+    final playback = MediaServerPlaybackInfo.fromJson({
+      'MediaSources': [
+        {'Id': 'alternate-source'},
+        {'Id': 'selected-source'},
+      ],
+    });
+
+    expect(playback.preferredSource('selected-source')?.id, 'selected-source');
+    expect(playback.preferredSource('missing-source')?.id, 'alternate-source');
+  });
 }

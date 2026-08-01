@@ -263,6 +263,18 @@ const _translations = <String, Map<String, String>>{
     'Google Cast': 'Google Cast',
     'Unable to open the Google Cast selector.':
         'Impossible d’ouvrir le sélecteur Google Cast.',
+    'Choose a Chromecast': 'Choisir un Chromecast',
+    'No Chromecast found on this network.':
+        'Aucun Chromecast trouvé sur ce réseau.',
+    'Unable to search for Chromecast devices.':
+        'Impossible de rechercher les appareils Chromecast.',
+    'Unable to connect to this Chromecast.':
+        'Impossible de se connecter à ce Chromecast.',
+    'AirPlay could not start a compatible video stream.':
+        'AirPlay n’a pas pu démarrer un flux vidéo compatible.',
+    'This media is playing on your TV.':
+        'Ce média est en cours de lecture sur votre téléviseur.',
+    'Disconnect': 'Déconnecter',
     'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.':
         'Lorsque Google Cast est disponible, son SDK peut transmettre à Google des informations techniques sur l’application, la détection des appareils et les sessions de diffusion. Les identifiants des serveurs multimédias ne sont pas inclus.',
     'Direct server communication': 'Communication directe avec les serveurs',
@@ -628,6 +640,8 @@ const _translations = <String, Map<String, String>>{
     'Preparing download…': 'Préparation du téléchargement…',
     'Available offline · {size}': 'Disponible hors-ligne · {size}',
     'Available offline': 'Disponible hors-ligne',
+    'Downloaded to this device': 'Téléchargé sur cet appareil',
+    '{downloaded} of {total}': '{downloaded} sur {total}',
     'No offline downloads': 'Aucun téléchargement hors-ligne',
     'Download an available movie or episode to watch it without a connection.':
         'Télécharge un film ou un épisode disponible pour le regarder sans connexion.',
@@ -824,6 +838,17 @@ const _translations = <String, Map<String, String>>{
     'Google Cast': 'Google Cast',
     'Unable to open the Google Cast selector.':
         'Unable to open the Google Cast selector.',
+    'Choose a Chromecast': 'Choose a Chromecast',
+    'No Chromecast found on this network.':
+        'No Chromecast found on this network.',
+    'Unable to search for Chromecast devices.':
+        'Unable to search for Chromecast devices.',
+    'Unable to connect to this Chromecast.':
+        'Unable to connect to this Chromecast.',
+    'AirPlay could not start a compatible video stream.':
+        'AirPlay could not start a compatible video stream.',
+    'This media is playing on your TV.': 'This media is playing on your TV.',
+    'Disconnect': 'Disconnect',
     'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.':
         'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.',
     'Direct server communication': 'Direct server communication',
@@ -1182,6 +1207,8 @@ const _translations = <String, Map<String, String>>{
     'Preparing download…': 'Preparing download…',
     'Available offline · {size}': 'Available offline · {size}',
     'Available offline': 'Available offline',
+    'Downloaded to this device': 'Downloaded to this device',
+    '{downloaded} of {total}': '{downloaded} of {total}',
     'No offline downloads': 'No offline downloads',
     'Download an available movie or episode to watch it without a connection.':
         'Download an available movie or episode to watch it without a connection.',
@@ -1378,6 +1405,18 @@ const _translations = <String, Map<String, String>>{
     'Google Cast': 'Google Cast',
     'Unable to open the Google Cast selector.':
         'No se puede abrir el selector de Google Cast.',
+    'Choose a Chromecast': 'Elegir un Chromecast',
+    'No Chromecast found on this network.':
+        'No se encontró ningún Chromecast en esta red.',
+    'Unable to search for Chromecast devices.':
+        'No se pueden buscar dispositivos Chromecast.',
+    'Unable to connect to this Chromecast.':
+        'No se puede conectar a este Chromecast.',
+    'AirPlay could not start a compatible video stream.':
+        'AirPlay no pudo iniciar un flujo de vídeo compatible.',
+    'This media is playing on your TV.':
+        'Este contenido se está reproduciendo en tu televisor.',
+    'Disconnect': 'Desconectar',
     'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.':
         'Cuando Google Cast está disponible, su SDK puede enviar a Google información técnica sobre la aplicación, la detección de dispositivos y las sesiones de transmisión. No se incluyen las credenciales del servidor multimedia.',
     'Direct server communication': 'Comunicación directa con los servidores',
@@ -1745,6 +1784,8 @@ const _translations = <String, Map<String, String>>{
     'Preparing download…': 'Preparando descarga…',
     'Available offline · {size}': 'Disponible sin conexión · {size}',
     'Available offline': 'Disponible sin conexión',
+    'Downloaded to this device': 'Descargado en este dispositivo',
+    '{downloaded} of {total}': '{downloaded} de {total}',
     'No offline downloads': 'No hay descargas sin conexión',
     'Download an available movie or episode to watch it without a connection.':
         'Descarga una película o episodio disponible para verlo sin conexión.',
@@ -1941,6 +1982,18 @@ const _translations = <String, Map<String, String>>{
     'Google Cast': 'Google Cast',
     'Unable to open the Google Cast selector.':
         'Impossibile aprire il selettore Google Cast.',
+    'Choose a Chromecast': 'Scegli un Chromecast',
+    'No Chromecast found on this network.':
+        'Nessun Chromecast trovato su questa rete.',
+    'Unable to search for Chromecast devices.':
+        'Impossibile cercare dispositivi Chromecast.',
+    'Unable to connect to this Chromecast.':
+        'Impossibile connettersi a questo Chromecast.',
+    'AirPlay could not start a compatible video stream.':
+        'AirPlay non ha potuto avviare un flusso video compatibile.',
+    'This media is playing on your TV.':
+        'Questo contenuto è in riproduzione sul televisore.',
+    'Disconnect': 'Disconnetti',
     'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.':
         'Quando Google Cast è disponibile, il relativo SDK può inviare a Google informazioni tecniche sull’applicazione, sul rilevamento dei dispositivi e sulle sessioni di trasmissione. Le credenziali dei server multimediali non sono incluse.',
     'Direct server communication': 'Comunicazione diretta con i server',
@@ -2309,6 +2362,8 @@ const _translations = <String, Map<String, String>>{
     'Preparing download…': 'Preparazione download…',
     'Available offline · {size}': 'Disponibile offline · {size}',
     'Available offline': 'Disponibile offline',
+    'Downloaded to this device': 'Scaricato su questo dispositivo',
+    '{downloaded} of {total}': '{downloaded} di {total}',
     'No offline downloads': 'Nessun download offline',
     'Download an available movie or episode to watch it without a connection.':
         'Scarica un film o episodio disponibile per guardarlo senza connessione.',
@@ -2506,6 +2561,18 @@ const _translations = <String, Map<String, String>>{
     'Google Cast': 'Google Cast',
     'Unable to open the Google Cast selector.':
         'Die Google-Cast-Auswahl konnte nicht geöffnet werden.',
+    'Choose a Chromecast': 'Chromecast auswählen',
+    'No Chromecast found on this network.':
+        'In diesem Netzwerk wurde kein Chromecast gefunden.',
+    'Unable to search for Chromecast devices.':
+        'Chromecast-Geräte konnten nicht gesucht werden.',
+    'Unable to connect to this Chromecast.':
+        'Die Verbindung zu diesem Chromecast konnte nicht hergestellt werden.',
+    'AirPlay could not start a compatible video stream.':
+        'AirPlay konnte keinen kompatiblen Videostream starten.',
+    'This media is playing on your TV.':
+        'Dieses Medium wird auf deinem Fernseher wiedergegeben.',
+    'Disconnect': 'Trennen',
     'When Google Cast is available, the Google Cast SDK may send technical application, device discovery and cast session information to Google. Media server credentials are not included.':
         'Wenn Google Cast verfügbar ist, kann das Google Cast SDK technische Informationen zur Anwendung, Geräteerkennung und Cast-Sitzung an Google senden. Zugangsdaten der Medienserver sind nicht enthalten.',
     'Direct server communication': 'Direkte Serverkommunikation',
@@ -2883,6 +2950,8 @@ const _translations = <String, Map<String, String>>{
     'Preparing download…': 'Download wird vorbereitet…',
     'Available offline · {size}': 'Offline verfügbar · {size}',
     'Available offline': 'Offline verfügbar',
+    'Downloaded to this device': 'Auf dieses Gerät heruntergeladen',
+    '{downloaded} of {total}': '{downloaded} von {total}',
     'No offline downloads': 'Keine Offline-Downloads',
     'Download an available movie or episode to watch it without a connection.':
         'Lade einen verfügbaren Film oder eine Folge herunter, um sie offline anzusehen.',

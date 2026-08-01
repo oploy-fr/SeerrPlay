@@ -9,6 +9,7 @@ final class DownloadCoordinator: NSObject {
   private var eventSink: FlutterEventSink?
   private var backgroundCompletionHandler: (() -> Void)?
   private var lastActivityPercentage: [String: Int] = [:]
+  private var lastProgressEmissionAt: [String: Date] = [:]
   private var transferSamples: [String: TransferSample] = [:]
 
   private struct TransferSample {
@@ -101,6 +102,9 @@ final class DownloadCoordinator: NSObject {
       "destinationPath": destinationPath,
       "title": title,
       "estimatedBytes": String(estimatedBytes),
+      "preferEstimatedTotal": String(
+        (arguments["preferEstimatedTotal"] as? Bool) == true
+      ),
     ])
     saveStatus(
       id: id,
@@ -236,6 +240,7 @@ final class DownloadCoordinator: NSObject {
   ) {
     guard #available(iOS 16.1, *) else { return }
     lastActivityPercentage.removeValue(forKey: id)
+    lastProgressEmissionAt.removeValue(forKey: id)
     transferSamples.removeValue(forKey: id)
     let state = DownloadActivityAttributes.ContentState(
       title: title,
@@ -296,6 +301,28 @@ final class DownloadCoordinator: NSObject {
       Int(ceil(Double(totalBytes - downloadedBytes) / smoothedSpeed))
     )
   }
+
+  private func effectiveTotalBytes(
+    metadata: [String: String],
+    serverTotal: Int64,
+    downloadedBytes: Int64
+  ) -> Int64 {
+    let estimatedTotal = Int64(metadata["estimatedBytes"] ?? "") ?? 0
+    let preferEstimatedTotal = metadata["preferEstimatedTotal"] == "true"
+    guard preferEstimatedTotal, estimatedTotal > 0 else {
+      return serverTotal > 0 ? serverTotal : estimatedTotal
+    }
+
+    // Progressive Jellyfin/Emby transcodes may expose an unknown or wildly
+    // inflated Content-Length. Use it only when it is plausible compared with
+    // the bitrate-based estimate chosen in the download quality sheet.
+    if serverTotal > 0,
+       serverTotal >= estimatedTotal / 4,
+       serverTotal <= estimatedTotal + (estimatedTotal / 2) {
+      return serverTotal
+    }
+    return max(estimatedTotal, downloadedBytes)
+  }
 }
 
 extension DownloadCoordinator: FlutterStreamHandler {
@@ -324,11 +351,20 @@ extension DownloadCoordinator: URLSessionDownloadDelegate {
     guard let metadata = metadata(for: downloadTask), let id = metadata["id"] else {
       return
     }
-    let estimatedTotal = Int64(metadata["estimatedBytes"] ?? "") ?? 0
-    let total = totalBytesExpectedToWrite > 0
-      ? totalBytesExpectedToWrite
-      : estimatedTotal
-    let progress = total > 0 ? Double(totalBytesWritten) / Double(total) : 0
+    let total = effectiveTotalBytes(
+      metadata: metadata,
+      serverTotal: totalBytesExpectedToWrite,
+      downloadedBytes: totalBytesWritten
+    )
+    let progress = total > 0
+      ? min(Double(totalBytesWritten) / Double(total), 0.99)
+      : 0
+    let now = Date()
+    if let lastEmission = lastProgressEmissionAt[id],
+       now.timeIntervalSince(lastEmission) < 1 {
+      return
+    }
+    lastProgressEmissionAt[id] = now
     let estimate = transferEstimate(
       id: id,
       downloadedBytes: totalBytesWritten,
@@ -368,6 +404,17 @@ extension DownloadCoordinator: URLSessionDownloadDelegate {
     }
     let destination = URL(fileURLWithPath: destinationPath)
     do {
+      if let response = downloadTask.response as? HTTPURLResponse,
+         !(200..<300).contains(response.statusCode) {
+        throw NSError(
+          domain: "SeerrPlayDownload",
+          code: response.statusCode,
+          userInfo: [
+            NSLocalizedDescriptionKey:
+              "The media server returned HTTP \(response.statusCode).",
+          ]
+        )
+      }
       try FileManager.default.createDirectory(
         at: destination.deletingLastPathComponent(),
         withIntermediateDirectories: true
@@ -381,6 +428,13 @@ extension DownloadCoordinator: URLSessionDownloadDelegate {
           atPath: destination.path
         )[.size] as? NSNumber)?.int64Value ?? 0
       )
+      guard size > 0 else {
+        throw NSError(
+          domain: "SeerrPlayDownload",
+          code: -1,
+          userInfo: [NSLocalizedDescriptionKey: "The downloaded file is empty."]
+        )
+      }
       saveStatus(
         id: id,
         status: "completed",

@@ -39,7 +39,7 @@ form factors, or review flow change.
 - [ ] Publish a public privacy policy on a stable HTTPS URL. It must match the
   in-app policy and the production SDK/data behavior.
 - [ ] Publish a support page or support email address.
-- [ ] Provide a stable, internet-accessible Seerr and Jellyfin review
+- [ ] Provide a stable, internet-accessible Seerr and media-server review
   environment with non-expiring credentials and review-safe sample media.
 - [ ] Complete Data safety, declaring Google Cast SDK technical data according
   to Google's current Cast SDK data-disclosure documentation.
@@ -100,12 +100,12 @@ The publication artifact is:
 Replace every bracketed value before submission.
 
 > SeerrPlay is an independent, unofficial client for media servers selected by
-> the user. It communicates directly with the supplied Seerr and Jellyfin
-> servers. It does not host, sell, index, or provide media and contains no
-> torrent client.
+> the user. It communicates directly with the supplied Seerr and Plex,
+> Jellyfin, or Emby servers. It does not host, sell, index, or provide media and
+> contains no torrent client.
 >
 > Seerr URL: [PUBLIC REVIEW URL]
-> Jellyfin URL: [PUBLIC REVIEW URL]
+> Media-server URL: [PUBLIC REVIEW URL]
 > Username: [REVIEW USERNAME]
 > Password: [REVIEW PASSWORD]
 >
@@ -125,8 +125,8 @@ Console question against the final production build.
 - Account creation: no SeerrPlay cloud account is created.
 - Local profiles: connection details and credentials are supplied by the user.
 - Credentials: stored with operating-system secure storage.
-- Media and playback data: exchanged directly with configured Seerr and
-  Jellyfin servers.
+- Media and playback data: exchanged directly with configured Seerr and Plex,
+  Jellyfin, or Emby servers.
 - Downloads: stored locally and removable from the Downloads page.
 - Notifications: generated locally from user-enabled periodic checks.
 - Advertising and developer analytics: none currently included.
@@ -135,7 +135,7 @@ Console question against the final production build.
 
 ## Review risks to monitor
 
-- The app cannot be reviewed without working public Seerr and Jellyfin
+- The app cannot be reviewed without working public Seerr and media-server
   credentials.
 - Generic streaming-service wording, third-party logos, or copyrighted store
   screenshots may cause impersonation or intellectual-property review issues.

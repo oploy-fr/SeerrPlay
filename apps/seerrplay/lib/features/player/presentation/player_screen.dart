@@ -6,15 +6,21 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:seerrplay/core/localization/app_localizations.dart';
 import 'package:seerrplay/core/platform/platform_capabilities.dart';
+import 'package:seerrplay/features/auth/application/app_session_controller.dart';
 import 'package:seerrplay/features/auth/application/client_providers.dart';
 import 'package:seerrplay/features/media_server/domain/media_server_models.dart';
 import 'package:seerrplay/features/media/domain/media_view_model.dart';
 import 'package:seerrplay/features/media_server/data/media_server_client.dart';
 import 'package:seerrplay/features/player/domain/subtitle_cue.dart';
 import 'package:seerrplay/features/player/domain/subtitle_style_preferences.dart';
+import 'package:seerrplay/features/player/application/playback_position_store.dart';
 import 'package:seerrplay/features/player/presentation/native_route_button.dart';
 import 'package:video_player/video_player.dart' show VideoViewType;
 import 'package:video_player_pip/index.dart';
+
+part 'player_controls.dart';
+part 'player_settings.dart';
+part 'player_surfaces.dart';
 
 const _windowControlChannel = MethodChannel('app.seerrplay/window');
 
@@ -22,6 +28,10 @@ const _windowControlChannel = MethodChannel('app.seerrplay/window');
 bool shouldStartAutomaticPip(AppLifecycleState state) {
   return state == AppLifecycleState.hidden || state == AppLifecycleState.paused;
 }
+
+@visibleForTesting
+int latestResumeTicks(int serverTicks, int savedTicks) =>
+    serverTicks > savedTicks ? serverTicks : savedTicks;
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
@@ -69,6 +79,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Duration? _queuedSeekPosition;
   Duration? _seekAnchor;
   Future<void>? _activeSeek;
+  final PlaybackPositionStore _positionStore = const PlaybackPositionStore();
+  bool _wasAirPlayConnected = false;
+  bool _wasAirPlayRoutePickerVisible = false;
+  bool _airPlayStreamPrepared = false;
+  bool _switchingToAirPlayStream = false;
+
+  String get _resumeMediaKey {
+    final profileId = ref
+        .read(appSessionControllerProvider)
+        .requireValue
+        .profile!
+        .id;
+    return '$profileId:${widget.media.mediaServerItemId ?? widget.media.id}';
+  }
 
   @override
   void initState() {
@@ -140,7 +164,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _initialize() async {
     final localFilePath = widget.media.localFilePath;
     if (localFilePath != null) {
-      await _initializeLocalFile(localFilePath);
+      await _initializeDownloadedFile(localFilePath);
       return;
     }
     final itemId = widget.media.mediaServerItemId;
@@ -155,15 +179,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     try {
       final client = ref.read(mediaServerClientProvider);
       final item = await client.getPlayableItem(itemId);
+      final savedTicks = await _positionStore.loadTicks(_resumeMediaKey);
       final startTicks = widget.startFromBeginning
           ? 0
-          : item.userData?.playbackPositionTicks ?? 0;
+          : latestResumeTicks(
+              item.userData?.playbackPositionTicks ?? 0,
+              savedTicks,
+            );
+      if (widget.startFromBeginning) {
+        await _positionStore.clear(_resumeMediaKey);
+      }
       _client = client;
       _playingItemId = item.id;
       await _openStream(startTicks: startTicks, initialLoad: true);
       _progressTimer = Timer.periodic(
         const Duration(seconds: 10),
-        (_) => _reportProgress(),
+        (_) => unawaited(_reportProgress()),
       );
       _scheduleControlsHide();
     } catch (error, stackTrace) {
@@ -173,7 +204,53 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  Future<void> _initializeLocalFile(String filePath) async {
+  Future<void> _initializeDownloadedFile(String filePath) async {
+    var startTicks = widget.startFromBeginning
+        ? 0
+        : await _positionStore.loadTicks(_resumeMediaKey);
+    if (widget.startFromBeginning) {
+      await _positionStore.clear(_resumeMediaKey);
+    }
+    final itemId = widget.media.mediaServerItemId;
+    if (itemId != null) {
+      try {
+        final client = ref.read(mediaServerClientProvider);
+        final item = await client.getPlayableItem(itemId);
+        if (!widget.startFromBeginning) {
+          startTicks = latestResumeTicks(
+            item.userData?.playbackPositionTicks ?? 0,
+            startTicks,
+          );
+        }
+        final playback = await client.getPlaybackInfo(
+          item.id,
+          startTimeTicks: startTicks,
+        );
+        final source = playback.mediaSources.firstOrNull;
+        if (source != null) {
+          _client = client;
+          _playingItemId = item.id;
+          _source = source;
+          _playSessionId = playback.playSessionId ?? '';
+        }
+      } catch (_) {
+        // Offline playback remains available without the media server.
+      }
+    }
+    await _initializeLocalFile(filePath, startTicks: startTicks);
+    if (_reportValues != null) {
+      await _reportStarted();
+      _progressTimer = Timer.periodic(
+        const Duration(seconds: 10),
+        (_) => unawaited(_reportProgress()),
+      );
+    }
+  }
+
+  Future<void> _initializeLocalFile(
+    String filePath, {
+    required int startTicks,
+  }) async {
     try {
       final file = File(filePath);
       if (!await file.exists()) {
@@ -189,6 +266,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       );
       await controller.initialize();
       await controller.setVolume(_volume);
+      if (startTicks > 0) {
+        final resumeAt = Duration(microseconds: startTicks ~/ 10);
+        if (resumeAt < controller.value.duration) {
+          await controller.seekTo(resumeAt);
+        }
+      }
       await controller.play();
       if (!mounted) {
         await controller.dispose();
@@ -208,6 +291,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<bool> _openStream({
     required int startTicks,
     bool initialLoad = false,
+    bool forceCompatiblePlayback = false,
+    bool omitPlaybackHeaders = false,
   }) async {
     final client = _client;
     final itemId = _playingItemId;
@@ -215,7 +300,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     final oldController = _controller;
     VideoPlayerController? pendingController;
-    final resumePlayback = oldController?.value.isPlaying ?? true;
+    final resumePlayback =
+        forceCompatiblePlayback || (oldController?.value.isPlaying ?? true);
     if (!initialLoad) {
       if (supportsSystemPictureInPicture) {
         unawaited(VideoPlayerPip.disableAutomaticPip());
@@ -237,13 +323,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       // the old controller alive until the replacement renders successfully;
       // this also gives us a working stream to restore when negotiation fails.
       final forceTranscoding =
-          !initialLoad &&
-          ((_subtitleRenderedByServer && _subtitleStreamIndex != null) ||
-              _audioStreamIndex != _source?.defaultAudioStreamIndex ||
-              _maxStreamingBitrate != null);
+          forceCompatiblePlayback ||
+          (!initialLoad &&
+              ((_subtitleRenderedByServer && _subtitleStreamIndex != null) ||
+                  _audioStreamIndex != _source?.defaultAudioStreamIndex ||
+                  _maxStreamingBitrate != null));
+      final requestedMediaSourceId = initialLoad ? null : _source?.id;
       final playback = await client.getPlaybackInfo(
         itemId,
         startTimeTicks: startTicks,
+        mediaSourceId: requestedMediaSourceId,
         audioStreamIndex: initialLoad ? null : _audioStreamIndex,
         subtitleStreamIndex:
             _subtitleRenderedByServer && _subtitleStreamIndex != null
@@ -252,10 +341,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         maxStreamingBitrate: _maxStreamingBitrate,
         forceTranscoding: forceTranscoding,
       );
-      if (playback.mediaSources.isEmpty) {
+      final source = playback.preferredSource(requestedMediaSourceId);
+      if (source == null) {
         throw const FormatException('No video source available.');
       }
-      final source = playback.mediaSources.first;
       if (initialLoad) {
         _audioStreamIndex =
             source.defaultAudioStreamIndex ??
@@ -273,7 +362,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final playbackUri = client.playbackUri(itemId, source);
       final controller = VideoPlayerController.networkUrl(
         playbackUri,
-        httpHeaders: client.playbackHeaders(),
+        // AirPlay fetches the media from the receiver. Jellyfin and Plex put
+        // their access token in the URL, while custom AVAsset headers cannot
+        // reliably be handed off to an Apple TV.
+        httpHeaders: omitPlaybackHeaders
+            ? const <String, String>{}
+            : client.playbackHeaders(),
         videoPlayerOptions: VideoPlayerOptions(
           mixWithOthers: false,
           allowBackgroundPlayback: true,
@@ -411,44 +505,78 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _reportStarted() async {
     final values = _reportValues;
     if (values == null) return;
-    await values.client.reportPlaybackStarted(
-      itemId: values.itemId,
-      mediaSourceId: values.source.id,
-      playSessionId: values.playSessionId,
-      positionTicks: _positionTicks,
-      audioStreamIndex: _audioStreamIndex,
-      subtitleStreamIndex: _subtitleStreamIndex,
-      playMethod: values.source.playMethod,
+    await _runPlaybackReport(
+      'started',
+      () => values.client.reportPlaybackStarted(
+        itemId: values.itemId,
+        mediaSourceId: values.source.id,
+        playSessionId: values.playSessionId,
+        positionTicks: _positionTicks,
+        audioStreamIndex: _audioStreamIndex,
+        subtitleStreamIndex: _subtitleStreamIndex,
+        playMethod: values.source.playMethod,
+      ),
     );
   }
 
   Future<void> _reportProgress() async {
+    await _saveResumePosition();
     final values = _reportValues;
     final controller = _controller;
     if (values == null || controller == null) return;
-    await values.client.reportPlaybackProgress(
-      itemId: values.itemId,
-      mediaSourceId: values.source.id,
-      playSessionId: values.playSessionId,
-      positionTicks: _positionTicks,
-      isPaused: !controller.value.isPlaying,
-      audioStreamIndex: _audioStreamIndex,
-      subtitleStreamIndex: _subtitleStreamIndex,
-      volumeLevel: (_volume * 100).round(),
-      playMethod: values.source.playMethod,
+    await _runPlaybackReport(
+      'progress',
+      () => values.client.reportPlaybackProgress(
+        itemId: values.itemId,
+        mediaSourceId: values.source.id,
+        playSessionId: values.playSessionId,
+        positionTicks: _positionTicks,
+        isPaused: !controller.value.isPlaying,
+        audioStreamIndex: _audioStreamIndex,
+        subtitleStreamIndex: _subtitleStreamIndex,
+        volumeLevel: (_volume * 100).round(),
+        playMethod: values.source.playMethod,
+      ),
+    );
+  }
+
+  Future<void> _saveResumePosition() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    await _positionStore.save(
+      mediaKey: _resumeMediaKey,
+      position: controller.value.position,
+      duration: controller.value.duration,
     );
   }
 
   Future<void> _reportStopped(_PlaybackReportValues values) {
-    return values.client.reportPlaybackStopped(
-      itemId: values.itemId,
-      mediaSourceId: values.source.id,
-      playSessionId: values.playSessionId,
-      positionTicks: _positionTicks,
-      audioStreamIndex: _audioStreamIndex,
-      subtitleStreamIndex: _subtitleStreamIndex,
-      playMethod: values.source.playMethod,
+    return _runPlaybackReport(
+      'stopped',
+      () => values.client.reportPlaybackStopped(
+        itemId: values.itemId,
+        mediaSourceId: values.source.id,
+        playSessionId: values.playSessionId,
+        positionTicks: _positionTicks,
+        audioStreamIndex: _audioStreamIndex,
+        subtitleStreamIndex: _subtitleStreamIndex,
+        playMethod: values.source.playMethod,
+      ),
     );
+  }
+
+  Future<void> _runPlaybackReport(
+    String event,
+    Future<void> Function() report,
+  ) async {
+    try {
+      await report();
+    } catch (error, stackTrace) {
+      // Playback reporting is best-effort. A temporary server failure must not
+      // interrupt a stream that is already initialized and playing correctly.
+      debugPrint('Unable to report playback $event: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   _PlaybackReportValues? get _reportValues {
@@ -644,6 +772,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _handleCastState() {
     if (!mounted) return;
+    final airPlayConnected = nativeCastController.airPlayConnected;
+    final airPlayJustConnected = airPlayConnected && !_wasAirPlayConnected;
+    final routePickerVisible = nativeCastController.airPlayRoutePickerVisible;
+    final routePickerJustClosed =
+        _wasAirPlayRoutePickerVisible && !routePickerVisible;
+    _wasAirPlayConnected = airPlayConnected;
+    _wasAirPlayRoutePickerVisible = routePickerVisible;
+    if (!airPlayConnected && !routePickerVisible && !routePickerJustClosed) {
+      _airPlayStreamPrepared = false;
+    }
+    if ((airPlayJustConnected || routePickerJustClosed) &&
+        !_airPlayStreamPrepared &&
+        widget.media.localFilePath == null) {
+      final positionTicks = _positionTicks;
+      unawaited(_switchToAirPlayCompatibleStream(positionTicks));
+    }
     if (nativeCastController.connected) {
       if (supportsSystemPictureInPicture) {
         unawaited(VideoPlayerPip.disableAutomaticPip());
@@ -658,6 +802,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
     }
     setState(() {});
+  }
+
+  Future<void> _switchToAirPlayCompatibleStream(int positionTicks) async {
+    if (_switchingToAirPlayStream || _changingStream) return;
+    _switchingToAirPlayStream = true;
+    _airPlayStreamPrepared = true;
+    try {
+      final switched = await _openStream(
+        startTicks: positionTicks,
+        forceCompatiblePlayback: true,
+        omitPlaybackHeaders: true,
+      );
+      if (!switched && mounted) {
+        _airPlayStreamPrepared = false;
+        setState(() {
+          _error = context.tr(
+            'AirPlay could not start a compatible video stream.',
+          );
+        });
+      }
+    } finally {
+      _switchingToAirPlayStream = false;
+    }
   }
 
   Future<void> _showSettings() async {
@@ -713,6 +880,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     final values = _reportValues;
     if (values != null) unawaited(_reportStopped(values));
+    unawaited(_saveResumePosition());
     _controller?.dispose();
     _restoreMobileSystemUi();
     super.dispose();
@@ -831,17 +999,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               onSettings: _showSettings,
                               isFullscreen: _isFullscreen,
                               onToggleFullscreen: _toggleFullscreen,
-                              routeButton: _playbackUri == null
-                                  ? null
-                                  : NativeRouteButton(
-                                      streamUrl: _playbackUri.toString(),
+                              routeButton:
+                                  Platform.isIOS ||
+                                      (Platform.isAndroid &&
+                                          _playbackUri != null)
+                                  ? NativeRouteButton(
+                                      streamUrl: _playbackUri?.toString() ?? '',
                                       title: widget.media.title,
                                       contentType:
                                           _source?.transcodingUrl != null
                                           ? 'application/x-mpegURL'
                                           : 'video/${_source?.container ?? 'mp4'}',
                                       position: controller.value.position,
-                                    ),
+                                    )
+                                  : null,
                               isCasting: nativeCastController.connected,
                               castDeviceName: nativeCastController.deviceName,
                               airPlayDeviceName:
@@ -914,1106 +1085,4 @@ class _PlaybackReportValues {
   final String itemId;
   final MediaServerSource source;
   final String playSessionId;
-}
-
-class _CentralPlaybackOverlay extends StatefulWidget {
-  const _CentralPlaybackOverlay({
-    required this.title,
-    required this.controller,
-    required this.controlsVisible,
-    required this.playbackExpected,
-    required this.isCasting,
-    required this.castPlaying,
-    required this.onBack,
-    required this.onTogglePlayback,
-    required this.onRewind,
-    required this.onForward,
-  });
-
-  final String title;
-  final VideoPlayerController controller;
-  final bool controlsVisible;
-  final bool playbackExpected;
-  final bool isCasting;
-  final bool castPlaying;
-  final VoidCallback onBack;
-  final Future<void> Function() onTogglePlayback;
-  final Future<void> Function() onRewind;
-  final Future<void> Function() onForward;
-
-  @override
-  State<_CentralPlaybackOverlay> createState() =>
-      _CentralPlaybackOverlayState();
-}
-
-class _CentralPlaybackOverlayState extends State<_CentralPlaybackOverlay> {
-  static const _stallDelay = Duration(milliseconds: 350);
-
-  Timer? _timer;
-  Duration _lastPosition = Duration.zero;
-  DateTime _lastProgressAt = DateTime.now();
-  bool _visible = false;
-  bool _wasBuffering = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _lastPosition = widget.controller.value.position;
-    widget.controller.addListener(_handlePlaybackUpdate);
-    _timer = Timer.periodic(
-      const Duration(milliseconds: 250),
-      (_) => _evaluateVisibility(),
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _CentralPlaybackOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller == widget.controller) return;
-    oldWidget.controller.removeListener(_handlePlaybackUpdate);
-    _lastPosition = widget.controller.value.position;
-    _lastProgressAt = DateTime.now();
-    widget.controller.addListener(_handlePlaybackUpdate);
-    _setVisible(false);
-  }
-
-  void _handlePlaybackUpdate() {
-    final value = widget.controller.value;
-    if (value.isBuffering && !_wasBuffering) {
-      _lastProgressAt = DateTime.now();
-    }
-    _wasBuffering = value.isBuffering;
-    final position = value.position;
-    if (position > _lastPosition) {
-      _lastProgressAt = DateTime.now();
-      _setVisible(false);
-    }
-    _lastPosition = position;
-  }
-
-  void _evaluateVisibility() {
-    final value = widget.controller.value;
-    final stalled =
-        value.isBuffering &&
-        widget.playbackExpected &&
-        DateTime.now().difference(_lastProgressAt) >= _stallDelay;
-    _setVisible(stalled);
-  }
-
-  void _setVisible(bool visible) {
-    if (_visible == visible || !mounted) return;
-    setState(() => _visible = visible);
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    widget.controller.removeListener(_handlePlaybackUpdate);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 650;
-    if (_visible) {
-      return _PlayerLoadingOverlay(
-        title: widget.title,
-        onBack: widget.onBack,
-        backgroundColor: Colors.transparent,
-        showHeader: !widget.controlsVisible,
-        blockInteraction: false,
-      );
-    }
-    return Center(
-      child: widget.controlsVisible
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SkipButton(rewind: true, onPressed: widget.onRewind),
-                SizedBox(width: compact ? 22 : 42),
-                IconButton.filled(
-                  tooltip: context.tr(
-                    (widget.isCasting
-                            ? widget.castPlaying
-                            : widget.controller.value.isPlaying)
-                        ? 'Pause'
-                        : 'Play state',
-                  ),
-                  iconSize: compact ? 42 : 52,
-                  onPressed: widget.onTogglePlayback,
-                  icon: Icon(
-                    (widget.isCasting
-                            ? widget.castPlaying
-                            : widget.controller.value.isPlaying)
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                  ),
-                ),
-                SizedBox(width: compact ? 22 : 42),
-                _SkipButton(rewind: false, onPressed: widget.onForward),
-              ],
-            )
-          : const SizedBox.shrink(),
-    );
-  }
-}
-
-class _PlayerLoadingOverlay extends StatelessWidget {
-  const _PlayerLoadingOverlay({
-    required this.title,
-    required this.onBack,
-    this.backgroundColor = Colors.black,
-    this.showHeader = true,
-    this.blockInteraction = true,
-  });
-
-  final String title;
-  final VoidCallback onBack;
-  final Color backgroundColor;
-  final bool showHeader;
-  final bool blockInteraction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (blockInteraction)
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-            child: ColoredBox(color: backgroundColor),
-          )
-        else if (backgroundColor != Colors.transparent)
-          IgnorePointer(child: ColoredBox(color: backgroundColor)),
-        const IgnorePointer(
-          child: Center(
-            child: SizedBox.square(
-              dimension: 36,
-              child: CircularProgressIndicator(strokeWidth: 3),
-            ),
-          ),
-        ),
-        if (showHeader)
-          SafeArea(
-            bottom: false,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      tooltip: context.tr('Back'),
-                      onPressed: onBack,
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _FittedVideo extends StatelessWidget {
-  const _FittedVideo({required this.controller, required this.fit});
-
-  final VideoPlayerController controller;
-  final BoxFit fit;
-
-  @override
-  Widget build(BuildContext context) {
-    final aspectRatio = controller.value.aspectRatio;
-    return ClipRect(
-      child: FittedBox(
-        fit: fit,
-        child: SizedBox(
-          width: aspectRatio * 1000,
-          height: 1000,
-          child: VideoPlayer(
-            controller,
-            key: ValueKey<int>(controller.playerId),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SubtitleOverlay extends StatefulWidget {
-  const _SubtitleOverlay({
-    required this.controller,
-    required this.cues,
-    required this.preferences,
-    required this.controlsVisible,
-  });
-
-  final VideoPlayerController controller;
-  final List<SubtitleCue> cues;
-  final SubtitleStylePreferences preferences;
-  final bool controlsVisible;
-
-  @override
-  State<_SubtitleOverlay> createState() => _SubtitleOverlayState();
-}
-
-class _SubtitleOverlayState extends State<_SubtitleOverlay> {
-  String? _text;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_updateCue);
-    _updateCue();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SubtitleOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(_updateCue);
-      widget.controller.addListener(_updateCue);
-    }
-    if (oldWidget.cues != widget.cues) _updateCue();
-  }
-
-  void _updateCue() {
-    final position = widget.controller.value.position;
-    var low = 0;
-    var high = widget.cues.length - 1;
-    SubtitleCue? active;
-    while (low <= high) {
-      final middle = (low + high) >> 1;
-      final cue = widget.cues[middle];
-      if (position < cue.start) {
-        high = middle - 1;
-      } else if (position > cue.end) {
-        low = middle + 1;
-      } else {
-        active = cue;
-        break;
-      }
-    }
-    final text = active?.text;
-    if (text != _text && mounted) setState(() => _text = text);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_updateCue);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final text = _text;
-    if (text == null) return const SizedBox.shrink();
-    final compact = MediaQuery.sizeOf(context).width < 700;
-    final baseSize = compact ? 20.0 : 28.0;
-    return IgnorePointer(
-      child: SafeArea(
-        child: AnimatedPadding(
-          duration: const Duration(milliseconds: 180),
-          padding: EdgeInsets.fromLTRB(
-            24,
-            24,
-            24,
-            widget.controlsVisible ? (compact ? 92 : 118) : 26,
-          ),
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: widget.preferences.background.color,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: widget.preferences.color.color,
-                    fontSize: baseSize * widget.preferences.size.scale,
-                    height: 1.2,
-                    fontWeight: FontWeight.w600,
-                    shadows: const [
-                      Shadow(color: Colors.black, blurRadius: 3),
-                      Shadow(color: Colors.black, offset: Offset(1, 1)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AirPlayPlaybackSurface extends StatelessWidget {
-  const _AirPlayPlaybackSurface({this.deviceName});
-
-  final String? deviceName;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.airplay_rounded, size: 58, color: Colors.white),
-              const SizedBox(height: 16),
-              Text(
-                context.tr('Playing with AirPlay'),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (deviceName != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  deviceName!,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(color: Colors.white70),
-                ),
-              ],
-              const SizedBox(height: 10),
-              Text(
-                context.tr(
-                  'Use the AirPlay button to change or stop playback on the TV.',
-                ),
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.white60),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlayerControls extends StatelessWidget {
-  const _PlayerControls({
-    required this.title,
-    required this.controller,
-    required this.volume,
-    required this.onInteraction,
-    required this.onBack,
-    required this.onSeek,
-    required this.onVolumeChanged,
-    required this.volumeExpanded,
-    required this.onToggleVolumePanel,
-    required this.onSettings,
-    required this.isFullscreen,
-    required this.onToggleFullscreen,
-    required this.isCasting,
-    this.castDeviceName,
-    this.airPlayDeviceName,
-    this.routeButton,
-  });
-
-  final String title;
-  final VideoPlayerController controller;
-  final double volume;
-  final VoidCallback onInteraction;
-  final VoidCallback onBack;
-  final Future<void> Function(Duration) onSeek;
-  final Future<void> Function(double) onVolumeChanged;
-  final bool volumeExpanded;
-  final VoidCallback onToggleVolumePanel;
-  final VoidCallback onSettings;
-  final bool isFullscreen;
-  final Future<void> Function() onToggleFullscreen;
-  final bool isCasting;
-  final String? castDeviceName;
-  final String? airPlayDeviceName;
-  final Widget? routeButton;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, child) {
-        final compact = MediaQuery.sizeOf(context).width < 650;
-        return DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black87, Colors.transparent, Colors.black87],
-              stops: [0, 0.5, 1],
-            ),
-          ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: context.tr('Back'),
-                        onPressed: onBack,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      if (isCasting)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            castDeviceName ?? 'Chromecast',
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
-                        ),
-                      if (airPlayDeviceName != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            'AirPlay · $airPlayDeviceName',
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
-                        ),
-                      IconButton(
-                        tooltip: context.tr(
-                          volumeExpanded ? 'Hide volume' : 'Volume',
-                        ),
-                        onPressed: onToggleVolumePanel,
-                        icon: Icon(
-                          volume == 0
-                              ? Icons.volume_off_rounded
-                              : volume < 0.5
-                              ? Icons.volume_down_rounded
-                              : Icons.volume_up_rounded,
-                        ),
-                      ),
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        width: volumeExpanded ? (compact ? 92 : 150) : 0,
-                        child: ClipRect(
-                          child: Slider(
-                            value: volume,
-                            onChanged: volumeExpanded
-                                ? (value) {
-                                    onInteraction();
-                                    unawaited(onVolumeChanged(value));
-                                  }
-                                : null,
-                          ),
-                        ),
-                      ),
-                      ?routeButton,
-                      IconButton(
-                        tooltip: context.tr('Playback settings'),
-                        onPressed: onSettings,
-                        icon: const Icon(Icons.settings_rounded),
-                      ),
-                      IconButton(
-                        tooltip: context.tr(
-                          isFullscreen
-                              ? 'Exit full screen'
-                              : 'Enter full screen',
-                        ),
-                        onPressed: () {
-                          onInteraction();
-                          unawaited(onToggleFullscreen());
-                        },
-                        icon: Icon(
-                          isFullscreen
-                              ? Icons.fullscreen_exit_rounded
-                              : Icons.fullscreen_rounded,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                _PlaybackTimeline(
-                  controller: controller,
-                  onInteraction: onInteraction,
-                  onSeek: onSeek,
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _PlaybackTimeline extends StatefulWidget {
-  const _PlaybackTimeline({
-    required this.controller,
-    required this.onInteraction,
-    required this.onSeek,
-  });
-
-  final VideoPlayerController controller;
-  final VoidCallback onInteraction;
-  final Future<void> Function(Duration) onSeek;
-
-  @override
-  State<_PlaybackTimeline> createState() => _PlaybackTimelineState();
-}
-
-class _PlaybackTimelineState extends State<_PlaybackTimeline> {
-  Duration? _scrubPosition;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.controller,
-      builder: (context, child) {
-        final value = widget.controller.value;
-        final duration = value.duration;
-        final controllerPosition = value.position > duration
-            ? duration
-            : value.position;
-        final position = _scrubPosition ?? controllerPosition;
-        final remaining = duration - position;
-        final bufferedPosition = value.buffered.isEmpty
-            ? controllerPosition
-            : value.buffered.last.end;
-        final bufferedMilliseconds = bufferedPosition.inMilliseconds
-            .clamp(controllerPosition.inMilliseconds, duration.inMilliseconds)
-            .toDouble();
-        final maximum = duration.inMilliseconds > 0
-            ? duration.inMilliseconds.toDouble()
-            : 1.0;
-        final timeWidth = duration.inHours >= 10
-            ? 88.0
-            : duration.inHours > 0
-            ? 76.0
-            : 56.0;
-        const timeStyle = TextStyle(
-          fontFeatures: [FontFeature.tabularFigures()],
-        );
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          child: Row(
-            children: [
-              SizedBox(
-                width: timeWidth,
-                child: Text(
-                  _formatDuration(position),
-                  style: timeStyle,
-                  textAlign: TextAlign.left,
-                ),
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    activeTrackColor: Colors.white,
-                    secondaryActiveTrackColor: Colors.white38,
-                    inactiveTrackColor: Colors.white24,
-                    thumbColor: Colors.white,
-                    overlayColor: Colors.white12,
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 5,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 13,
-                    ),
-                  ),
-                  child: Slider(
-                    value: position.inMilliseconds
-                        .clamp(0, duration.inMilliseconds)
-                        .toDouble(),
-                    secondaryTrackValue: bufferedMilliseconds,
-                    max: maximum,
-                    onChangeStart: (milliseconds) {
-                      widget.onInteraction();
-                      setState(
-                        () => _scrubPosition = Duration(
-                          milliseconds: milliseconds.round(),
-                        ),
-                      );
-                    },
-                    onChanged: (milliseconds) {
-                      widget.onInteraction();
-                      setState(
-                        () => _scrubPosition = Duration(
-                          milliseconds: milliseconds.round(),
-                        ),
-                      );
-                    },
-                    onChangeEnd: (milliseconds) async {
-                      final target = Duration(
-                        milliseconds: milliseconds.round(),
-                      );
-                      setState(() => _scrubPosition = target);
-                      await widget.onSeek(target);
-                      if (mounted) setState(() => _scrubPosition = null);
-                    },
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: timeWidth,
-                child: Text(
-                  '-${_formatDuration(remaining)}',
-                  style: timeStyle,
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _SkipButton extends StatelessWidget {
-  const _SkipButton({required this.rewind, required this.onPressed});
-
-  final bool rewind;
-  final Future<void> Function() onPressed;
-
-  @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: context.tr(rewind ? 'Rewind 10 seconds' : 'Forward 10 seconds'),
-    iconSize: 42,
-    onPressed: onPressed,
-    icon: Icon(rewind ? Icons.replay_10_rounded : Icons.forward_10_rounded),
-  );
-}
-
-class _PlayerSettingsSheet extends StatefulWidget {
-  const _PlayerSettingsSheet({
-    required this.source,
-    required this.serverName,
-    required this.videoSize,
-    required this.selectedAudioIndex,
-    required this.selectedSubtitleIndex,
-    required this.maxStreamingBitrate,
-    required this.playbackSpeed,
-    required this.playerFit,
-    required this.onAudioChanged,
-    required this.onSubtitleChanged,
-    required this.onQualityChanged,
-    required this.onSpeedChanged,
-    required this.onFitChanged,
-  });
-
-  final MediaServerSource? source;
-  final String serverName;
-  final Size? videoSize;
-  final int? selectedAudioIndex;
-  final int? selectedSubtitleIndex;
-  final int? maxStreamingBitrate;
-  final double playbackSpeed;
-  final _PlayerFit playerFit;
-  final ValueChanged<int?> onAudioChanged;
-  final ValueChanged<int?> onSubtitleChanged;
-  final ValueChanged<int?> onQualityChanged;
-  final ValueChanged<double> onSpeedChanged;
-  final ValueChanged<_PlayerFit> onFitChanged;
-
-  @override
-  State<_PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
-}
-
-class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
-  late double _playbackSpeed = widget.playbackSpeed;
-  late _PlayerFit _playerFit = widget.playerFit;
-
-  @override
-  Widget build(BuildContext context) {
-    final audioStreams = widget.source?.audioStreams ?? const [];
-    final subtitleStreams = widget.source?.subtitleStreams ?? const [];
-    final automaticQualityDetails = _automaticQualityDetails(context);
-    return SafeArea(
-      child: DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.78,
-        minChildSize: 0.45,
-        maxChildSize: 0.94,
-        builder: (context, scrollController) => ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-          children: [
-            Text(
-              context.tr('Playback settings'),
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 18),
-            _SettingsSection(
-              icon: Icons.high_quality_rounded,
-              title: 'Quality',
-              bottomSpacing:
-                  widget.maxStreamingBitrate == null &&
-                      automaticQualityDetails.isNotEmpty
-                  ? 12
-                  : 24,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final quality in _PlayerQuality.values)
-                    ChoiceChip(
-                      label: Text(
-                        quality.bitrate == null
-                            ? 'Auto · ${widget.serverName}'
-                            : context.tr(quality.label),
-                      ),
-                      selected: quality.bitrate == widget.maxStreamingBitrate,
-                      selectedColor: Theme.of(context).colorScheme.primary,
-                      checkmarkColor: Colors.white,
-                      labelStyle: TextStyle(
-                        color: quality.bitrate == widget.maxStreamingBitrate
-                            ? Colors.white
-                            : null,
-                      ),
-                      onSelected: (_) =>
-                          widget.onQualityChanged(quality.bitrate),
-                    ),
-                ],
-              ),
-            ),
-            if (widget.maxStreamingBitrate == null &&
-                automaticQualityDetails.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 24),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.10),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_rounded,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr(
-                              'Stream selected by {service}',
-                              arguments: {'service': widget.serverName},
-                            ),
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            automaticQualityDetails,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.white70),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            _SettingsSection(
-              icon: Icons.speed_rounded,
-              title: 'Speed',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final speed in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
-                    ChoiceChip(
-                      label: Text('${speed}x'),
-                      selected: speed == _playbackSpeed,
-                      selectedColor: Theme.of(context).colorScheme.primary,
-                      checkmarkColor: Colors.white,
-                      labelStyle: TextStyle(
-                        color: speed == _playbackSpeed ? Colors.white : null,
-                      ),
-                      onSelected: (_) {
-                        setState(() => _playbackSpeed = speed);
-                        widget.onSpeedChanged(speed);
-                      },
-                    ),
-                ],
-              ),
-            ),
-            _SettingsSection(
-              icon: Icons.aspect_ratio_rounded,
-              title: 'Picture format',
-              child: SegmentedButton<_PlayerFit>(
-                segments: [
-                  for (final fit in _PlayerFit.values)
-                    ButtonSegment(
-                      value: fit,
-                      label: Text(context.tr(fit.label)),
-                      icon: Icon(fit.icon),
-                    ),
-                ],
-                selected: {_playerFit},
-                onSelectionChanged: (selection) {
-                  setState(() => _playerFit = selection.first);
-                  widget.onFitChanged(selection.first);
-                },
-              ),
-            ),
-            _SettingsSection(
-              icon: Icons.audiotrack_rounded,
-              title: 'Audio',
-              child: audioStreams.isEmpty
-                  ? Text(context.tr('No other audio track available'))
-                  : RadioGroup<int>(
-                      groupValue: widget.selectedAudioIndex,
-                      onChanged: widget.onAudioChanged,
-                      child: Column(
-                        children: [
-                          for (final stream in audioStreams)
-                            RadioListTile<int>(
-                              contentPadding: EdgeInsets.zero,
-                              value: stream.index,
-                              title: Text(context.l10n.status(stream.label)),
-                              secondary: stream.isDefault
-                                  ? const Icon(
-                                      Icons.check_circle_outline_rounded,
-                                    )
-                                  : null,
-                            ),
-                        ],
-                      ),
-                    ),
-            ),
-            _SettingsSection(
-              icon: Icons.subtitles_rounded,
-              title: 'Subtitles',
-              child: RadioGroup<int>(
-                groupValue: widget.selectedSubtitleIndex ?? -1,
-                onChanged: (index) =>
-                    widget.onSubtitleChanged(index == -1 ? null : index),
-                child: Column(
-                  children: [
-                    RadioListTile<int>(
-                      contentPadding: EdgeInsets.zero,
-                      value: -1,
-                      title: Text(context.tr('Off')),
-                    ),
-                    for (final stream in subtitleStreams)
-                      RadioListTile<int>(
-                        contentPadding: EdgeInsets.zero,
-                        value: stream.index,
-                        title: Text(context.l10n.status(stream.label)),
-                        secondary: stream.isForced
-                            ? Text(context.tr('Forced'))
-                            : stream.isDefault
-                            ? Text(context.tr('Default'))
-                            : null,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _automaticQualityDetails(BuildContext context) {
-    final source = widget.source;
-    if (source == null) return '';
-    final videoStream = source.mediaStreams
-        .where((stream) => stream.type == MediaStreamType.video)
-        .firstOrNull;
-    final reportedSize = widget.videoSize;
-    final width = reportedSize != null && reportedSize.width > 0
-        ? reportedSize.width.round()
-        : videoStream?.width;
-    final height = reportedSize != null && reportedSize.height > 0
-        ? reportedSize.height.round()
-        : videoStream?.height;
-    final bitrate = videoStream?.bitRate ?? source.bitrate;
-    final codec = videoStream?.codec?.trim().toUpperCase();
-    final details = <String>[
-      if (height != null && height > 0)
-        '${_resolutionLabel(height)}${width != null && width > 0 ? ' ($width×$height)' : ''}',
-      if (bitrate != null && bitrate > 0) _formatBitrate(bitrate),
-      if (codec?.isNotEmpty == true) codec!,
-      source.playMethod == 'Transcode'
-          ? context.tr(
-              'Transcoded by {service}',
-              arguments: {'service': widget.serverName},
-            )
-          : context.tr(
-              source.playMethod == 'DirectPlay'
-                  ? 'Direct play'
-                  : 'Direct stream',
-            ),
-    ];
-    return details.join(' · ');
-  }
-}
-
-class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.icon,
-    required this.title,
-    required this.child,
-    this.bottomSpacing = 24,
-  });
-
-  final IconData icon;
-  final String title;
-  final Widget child;
-  final double bottomSpacing;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(bottom: bottomSpacing),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              context.tr(title),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        child,
-      ],
-    ),
-  );
-}
-
-enum _PlayerFit {
-  cover('Fill screen', Icons.crop_free_rounded, BoxFit.cover),
-  contain('Fit image', Icons.fit_screen_rounded, BoxFit.contain);
-
-  const _PlayerFit(this.label, this.icon, this.fit);
-  final String label;
-  final IconData icon;
-  final BoxFit fit;
-}
-
-enum _PlayerQuality {
-  auto('Auto', null),
-  ultraHd('4K · 40 Mb/s', 40000000),
-  fullHd('1080p · 20 Mb/s', 20000000),
-  fullHdLight('1080p · 10 Mb/s', 10000000),
-  hd('720p · 5 Mb/s', 5000000),
-  mobile('Mobile · 2 Mb/s', 2000000);
-
-  const _PlayerQuality(this.label, this.bitrate);
-  final String label;
-  final int? bitrate;
-}
-
-class _PlayerError extends StatelessWidget {
-  const _PlayerError({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.error_outline_rounded, size: 48),
-          const SizedBox(height: 16),
-          Text(context.tr('Unable to play')),
-          const SizedBox(height: 8),
-          Text(context.tr(message), textAlign: TextAlign.center),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 12,
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(context.tr('Back')),
-              ),
-              FilledButton(
-                onPressed: onRetry,
-                child: Text(context.tr('Try again')),
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-String _formatDuration(Duration duration) {
-  final totalSeconds = duration.inSeconds.abs();
-  final hours = totalSeconds ~/ 3600;
-  final minutes = (totalSeconds % 3600) ~/ 60;
-  final seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-  return '$minutes:${seconds.toString().padLeft(2, '0')}';
-}
-
-String _resolutionLabel(int height) {
-  if (height >= 2000) return '4K';
-  if (height >= 1400) return '1440p';
-  if (height >= 1000) return '1080p';
-  if (height >= 700) return '720p';
-  if (height >= 500) return '576p';
-  if (height >= 350) return '480p';
-  return '${height}p';
-}
-
-String _formatBitrate(int bitrate) {
-  final megabits = bitrate / 1000000;
-  final value = megabits >= 10 || megabits == megabits.roundToDouble()
-      ? megabits.toStringAsFixed(0)
-      : megabits.toStringAsFixed(1);
-  return '$value Mb/s';
-}
-
-String _friendlyError(Object error) {
-  final message = error.toString().replaceFirst('Exception: ', '');
-  return message.replaceFirst('FormatException: ', '');
 }

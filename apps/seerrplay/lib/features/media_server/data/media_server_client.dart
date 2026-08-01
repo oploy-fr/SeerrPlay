@@ -40,6 +40,7 @@ abstract interface class MediaServerClient {
   Future<MediaServerPlaybackInfo> getPlaybackInfo(
     String itemId, {
     int startTimeTicks = 0,
+    String? mediaSourceId,
     int? audioStreamIndex,
     int? subtitleStreamIndex,
     int? maxStreamingBitrate,

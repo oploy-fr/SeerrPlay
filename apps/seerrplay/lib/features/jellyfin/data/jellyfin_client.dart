@@ -340,6 +340,7 @@ class JellyfinClient implements MediaServerClient {
   Future<MediaServerPlaybackInfo> getPlaybackInfo(
     String itemId, {
     int startTimeTicks = 0,
+    String? mediaSourceId,
     int? audioStreamIndex,
     int? subtitleStreamIndex,
     int? maxStreamingBitrate,
@@ -349,6 +350,7 @@ class JellyfinClient implements MediaServerClient {
     final request = <String, Object?>{
       'UserId': session.user.id,
       'StartTimeTicks': startTimeTicks,
+      'MediaSourceId': ?mediaSourceId,
       'AudioStreamIndex': audioStreamIndex,
       'SubtitleStreamIndex': subtitleStreamIndex,
       'MaxStreamingBitrate': ?maxStreamingBitrate,
@@ -365,6 +367,7 @@ class JellyfinClient implements MediaServerClient {
         query: {
           'UserId': session.user.id,
           'StartTimeTicks': '$startTimeTicks',
+          'MediaSourceId': ?mediaSourceId,
           if (audioStreamIndex != null) 'AudioStreamIndex': '$audioStreamIndex',
           if (subtitleStreamIndex != null)
             'SubtitleStreamIndex': '$subtitleStreamIndex',

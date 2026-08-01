@@ -204,6 +204,15 @@ class MediaServerPlaybackInfo {
 
   final List<MediaServerSource> mediaSources;
   final String? playSessionId;
+
+  MediaServerSource? preferredSource(String? mediaSourceId) {
+    if (mediaSourceId != null && mediaSourceId.isNotEmpty) {
+      for (final source in mediaSources) {
+        if (source.id == mediaSourceId) return source;
+      }
+    }
+    return mediaSources.firstOrNull;
+  }
 }
 
 class MediaServerSource {

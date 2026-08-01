@@ -194,7 +194,10 @@ class _DesktopTopNavigation extends StatelessWidget {
         children: [
           const Align(
             alignment: Alignment.centerLeft,
-            child: SeerrBrandLogo(compact: true),
+            child: Padding(
+              padding: EdgeInsets.only(left: 10),
+              child: SeerrBrandLogo(compact: true),
+            ),
           ),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 760),

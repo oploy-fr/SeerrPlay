@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:seerrplay/features/auth/application/app_session_controller.dart';
@@ -23,44 +24,79 @@ final downloadsControllerProvider =
 
 class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
   final Map<String, CancelToken> _cancelTokens = {};
-  final Map<String, int> _lastNativeProgress = {};
   final Map<String, DownloadSpeedEstimator> _speedEstimators = {};
+  final Map<String, DateTime> _lastDesktopProgressEmissionAt = {};
   StreamSubscription<NativeDownloadEvent>? _nativeEvents;
+  Timer? _nativeStatusTimer;
+  AppLifecycleListener? _lifecycleListener;
+  bool _refreshingNativeStatuses = false;
+  String? _activeProfileId;
 
   String get _profileId =>
+      _activeProfileId ??
       ref.read(appSessionControllerProvider).requireValue.profile!.id;
 
-  String get _storageKey => 'offline_downloads_v1_$_profileId';
+  static String _storageKeyFor(String profileId) =>
+      'offline_downloads_v1_$profileId';
 
   @override
   Future<List<OfflineDownload>> build() async {
-    await _nativeEvents?.cancel();
-    if (DownloadProgressService.usesNativeBackgroundDownloads) {
-      _nativeEvents = DownloadProgressService.events.listen(_onNativeEvent);
-      ref.onDispose(() => _nativeEvents?.cancel());
-    }
     final profileId = ref
         .watch(appSessionControllerProvider)
         .requireValue
         .profile!
         .id;
+    _activeProfileId = profileId;
+    await _nativeEvents?.cancel();
+    _nativeStatusTimer?.cancel();
+    _lifecycleListener?.dispose();
+    if (DownloadProgressService.usesNativeBackgroundDownloads) {
+      _nativeEvents = DownloadProgressService.events.listen(_onNativeEvent);
+      _nativeStatusTimer = Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => unawaited(_refreshNativeStatuses()),
+      );
+      _lifecycleListener = AppLifecycleListener(
+        onResume: () => unawaited(_refreshNativeStatuses()),
+      );
+    }
+    ref.onDispose(() {
+      for (final token in _cancelTokens.values) {
+        token.cancel('Downloads controller disposed');
+      }
+      _cancelTokens.clear();
+      _speedEstimators.clear();
+      _lastDesktopProgressEmissionAt.clear();
+      _nativeEvents?.cancel();
+      _nativeStatusTimer?.cancel();
+      _lifecycleListener?.dispose();
+    });
     final preferences = await SharedPreferences.getInstance();
-    final raw = preferences.getString('offline_downloads_v1_$profileId');
+    final storageKey = _storageKeyFor(profileId);
+    final raw = preferences.getString(storageKey);
     if (raw == null) return const [];
-    final decoded = jsonDecode(raw);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      await preferences.remove(storageKey);
+      return const [];
+    }
     if (decoded is! List) return const [];
-    final restored = decoded
-        .whereType<Map>()
-        .map(
-          (value) => OfflineDownload.fromJson(
-            value.map((key, item) => MapEntry('$key', item)),
-          ),
-        )
-        .where((download) => download.id.isNotEmpty)
-        .toList(growable: false);
+    final restored = <OfflineDownload>[];
+    for (final value in decoded.whereType<Map>()) {
+      try {
+        final download = OfflineDownload.fromJson(
+          value.map((key, item) => MapEntry('$key', item)),
+        );
+        if (download.id.isNotEmpty) restored.add(download);
+      } on Object {
+        // Ignore a damaged entry while preserving all other offline media.
+      }
+    }
     final available = <OfflineDownload>[];
     for (final download in restored) {
-      final file = await _resolveDownloadFile(download);
+      final file = await _resolveDownloadFile(download, profileId);
       final restoredDownload = file.path == download.filePath
           ? download
           : download.copyWith(filePath: file.path);
@@ -111,7 +147,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         ),
       );
     }
-    await _persist(available);
+    await _persistForProfile(profileId, available);
     return available;
   }
 
@@ -149,6 +185,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     OfflineDownloadPreparation preparation,
     OfflineDownloadOption option,
   ) async {
+    final profileId = _profileId;
     final current = state.requireValue;
     if (current.any(
       (download) =>
@@ -162,11 +199,20 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     final playable = preparation.playableItem;
     final source = preparation.mediaSource;
     final container = option.container;
-    final directory = await _downloadDirectory();
-    final id = '${_profileId}_${playable.id}';
+    final directory = await _downloadDirectory(profileId);
+    final id = '${profileId}_${playable.id}';
     final filePath = '${directory.path}/$id.$container';
     final existingFile = File(filePath);
     if (await existingFile.exists()) await existingFile.delete();
+    if (!_ownsProfile(profileId) || !state.hasValue) return;
+    final latest = state.requireValue;
+    if (latest.any(
+      (download) =>
+          download.sourceItemId == preparation.sourceItemId &&
+          download.status != OfflineDownloadStatus.failed,
+    )) {
+      return;
+    }
     final entry = OfflineDownload(
       id: id,
       sourceItemId: preparation.sourceItemId,
@@ -184,11 +230,11 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     );
     state = AsyncData([
       entry,
-      ...current.where(
+      ...latest.where(
         (download) => download.sourceItemId != preparation.sourceItemId,
       ),
     ]);
-    await _persist(state.requireValue);
+    await _persistForProfile(profileId, state.requireValue);
 
     final cancelToken = CancelToken();
     _cancelTokens[id] = cancelToken;
@@ -215,16 +261,19 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
           destinationPath: filePath,
           title: entry.title,
           estimatedBytes: entry.totalBytes,
+          preferEstimatedTotal: option.transcodes,
         );
       } catch (_) {
-        _replace(
-          id,
-          (download) => download.copyWith(
-            status: OfflineDownloadStatus.failed,
-            error: 'Unable to download this media.',
-          ),
-        );
-        await _persist(state.requireValue);
+        if (_ownsProfile(profileId) && state.hasValue) {
+          _replace(
+            id,
+            (download) => download.copyWith(
+              status: OfflineDownloadStatus.failed,
+              error: 'Unable to download this media.',
+            ),
+          );
+          await _persistForProfile(profileId, state.requireValue);
+        }
       } finally {
         _cancelTokens.remove(id);
       }
@@ -243,9 +292,23 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         sourceUri: sourceUri,
         cancelToken: cancelToken,
         onReceiveProgress: (received, total) {
-          if (!state.hasValue) return;
-          final progress = total <= 0 ? 0.0 : received / total;
-          final knownTotal = total > 0 ? total : entry.totalBytes;
+          if (!_ownsProfile(profileId) || !state.hasValue) return;
+          final now = DateTime.now();
+          final lastEmission = _lastDesktopProgressEmissionAt[id];
+          if (lastEmission != null &&
+              now.difference(lastEmission) < const Duration(seconds: 1)) {
+            return;
+          }
+          _lastDesktopProgressEmissionAt[id] = now;
+          final knownTotal = _effectiveDownloadTotal(
+            serverTotal: total,
+            estimatedTotal: entry.totalBytes,
+            downloadedBytes: received,
+            preferEstimatedTotal: option.transcodes,
+          );
+          final progress = knownTotal <= 0
+              ? 0.0
+              : (received / knownTotal).clamp(0.0, 0.99);
           final estimate = _speedEstimators
               .putIfAbsent(id, DownloadSpeedEstimator.new)
               .update(downloadedBytes: received, totalBytes: knownTotal);
@@ -270,6 +333,25 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         },
       );
       final size = await File(filePath).length();
+      if (size <= 0) {
+        throw DioException(
+          requestOptions: RequestOptions(path: sourceUri.toString()),
+          error: 'The downloaded file is empty.',
+        );
+      }
+      if (!_ownsProfile(profileId) || !state.hasValue) {
+        await _updatePersistedDownload(
+          profileId,
+          id,
+          (download) => download.copyWith(
+            status: OfflineDownloadStatus.completed,
+            progress: 1,
+            downloadedBytes: size,
+            totalBytes: size,
+          ),
+        );
+        return;
+      }
       _replace(
         id,
         (download) => download.copyWith(
@@ -286,9 +368,16 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         completed: true,
       );
       _speedEstimators.remove(id);
+      _lastDesktopProgressEmissionAt.remove(id);
     } on DioException catch (error) {
       final file = File(filePath);
       if (await file.exists()) await file.delete();
+      if (CancelToken.isCancel(error) ||
+          !_ownsProfile(profileId) ||
+          !state.hasValue ||
+          !_contains(id)) {
+        return;
+      }
       _replace(
         id,
         (download) => download.copyWith(
@@ -304,27 +393,53 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         progress: 0,
         failed: true,
       );
+    } catch (_) {
+      final file = File(filePath);
+      if (await file.exists()) await file.delete();
+      if (!_ownsProfile(profileId) || !state.hasValue || !_contains(id)) {
+        return;
+      }
+      _replace(
+        id,
+        (download) => download.copyWith(
+          status: OfflineDownloadStatus.failed,
+          error: 'Unable to download this media.',
+        ),
+      );
+      await DownloadProgressService.showAndroidProgress(
+        id: id,
+        title: entry.title,
+        progress: 0,
+        failed: true,
+      );
     } finally {
       _cancelTokens.remove(id);
       _speedEstimators.remove(id);
-      await _persist(state.requireValue);
+      _lastDesktopProgressEmissionAt.remove(id);
+      if (_ownsProfile(profileId) && state.hasValue) {
+        await _persistForProfile(profileId, state.requireValue);
+      }
     }
   }
 
   Future<void> delete(String id) async {
+    final profileId = _profileId;
+    final download = state.value?.where((item) => item.id == id).firstOrNull;
+    if (download == null) return;
     _cancelTokens.remove(id)?.cancel();
     _speedEstimators.remove(id);
+    _lastDesktopProgressEmissionAt.remove(id);
     if (DownloadProgressService.usesNativeBackgroundDownloads) {
       await DownloadProgressService.cancelNativeDownload(id);
     } else {
       await DownloadProgressService.cancelAndroidProgress(id);
     }
-    final download = state.requireValue
-        .where((item) => item.id == id)
-        .firstOrNull;
-    if (download == null) return;
     final file = File(download.filePath);
     if (await file.exists()) await file.delete();
+    if (!_ownsProfile(profileId) || !state.hasValue) {
+      await _removePersistedDownload(profileId, id);
+      return;
+    }
     state = AsyncData(
       state.requireValue.where((item) => item.id != id).toList(growable: false),
     );
@@ -333,6 +448,7 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
 
   Future<File?> localFileForItem(String itemId) async {
     if (itemId.isEmpty) return null;
+    final profileId = _profileId;
     final completed = state.value
         ?.where(
           (download) =>
@@ -342,11 +458,11 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         )
         .firstOrNull;
     if (completed != null) {
-      final file = await _resolveDownloadFile(completed);
+      final file = await _resolveDownloadFile(completed, profileId);
       if (await file.exists()) return file;
     }
-    final directory = await _downloadDirectory();
-    final prefix = '${_profileId}_$itemId.';
+    final directory = await _downloadDirectory(profileId);
+    final prefix = '${profileId}_$itemId.';
     await for (final entity in directory.list(followLinks: false)) {
       if (entity is File && entity.uri.pathSegments.last.startsWith(prefix)) {
         return entity;
@@ -365,6 +481,11 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
     ]);
   }
 
+  bool _contains(String id) =>
+      state.value?.any((download) => download.id == id) ?? false;
+
+  bool _ownsProfile(String profileId) => _activeProfileId == profileId;
+
   void _onNativeEvent(NativeDownloadEvent event) {
     if (!state.hasValue) return;
     final current = state.requireValue
@@ -381,12 +502,6 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
         : totalBytes > 0
         ? event.downloadedBytes / totalBytes
         : 0.0;
-    final percentage = (progress.clamp(0, 1) * 100).round();
-    if (event.status == 'downloading' &&
-        _lastNativeProgress[event.id] == percentage) {
-      return;
-    }
-    _lastNativeProgress[event.id] = percentage;
     _replace(
       event.id,
       (download) => download.copyWith(
@@ -405,33 +520,131 @@ class DownloadsController extends AsyncNotifier<List<OfflineDownload>> {
             : null,
       ),
     );
-    if (event.status != 'downloading') {
-      _lastNativeProgress.remove(event.id);
-    }
     unawaited(_persist(state.requireValue));
   }
 
-  Future<Directory> _downloadDirectory() async {
+  Future<void> _refreshNativeStatuses() async {
+    if (!DownloadProgressService.usesNativeBackgroundDownloads ||
+        _refreshingNativeStatuses ||
+        !state.hasValue) {
+      return;
+    }
+    _refreshingNativeStatuses = true;
+    try {
+      final activeDownloads = state.requireValue
+          .where(
+            (download) => download.status == OfflineDownloadStatus.downloading,
+          )
+          .toList(growable: false);
+      for (final download in activeDownloads) {
+        final nativeStatus = await DownloadProgressService.nativeStatus(
+          download.id,
+        );
+        if (nativeStatus != null && state.hasValue) {
+          _onNativeEvent(nativeStatus);
+        }
+      }
+    } finally {
+      _refreshingNativeStatuses = false;
+    }
+  }
+
+  Future<Directory> _downloadDirectory([String? profileId]) async {
     final root = await getApplicationSupportDirectory();
-    final directory = Directory('${root.path}/SeerrPlay/downloads/$_profileId');
+    final ownerProfileId = profileId ?? _profileId;
+    final directory = Directory(
+      '${root.path}/SeerrPlay/downloads/$ownerProfileId',
+    );
     await directory.create(recursive: true);
     return directory;
   }
 
-  Future<File> _resolveDownloadFile(OfflineDownload download) async {
+  Future<File> _resolveDownloadFile(
+    OfflineDownload download, [
+    String? profileId,
+  ]) async {
     final storedFile = File(download.filePath);
     if (await storedFile.exists()) return storedFile;
-    final directory = await _downloadDirectory();
+    final directory = await _downloadDirectory(profileId);
     final fileName = storedFile.uri.pathSegments.last;
     return File('${directory.path}/$fileName');
   }
 
   Future<void> _persist(List<OfflineDownload> downloads) async {
+    await _persistForProfile(_profileId, downloads);
+  }
+
+  Future<void> _persistForProfile(
+    String profileId,
+    List<OfflineDownload> downloads,
+  ) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
-      _storageKey,
+      _storageKeyFor(profileId),
       jsonEncode(downloads.map((download) => download.toJson()).toList()),
     );
+  }
+
+  Future<void> _updatePersistedDownload(
+    String profileId,
+    String id,
+    OfflineDownload Function(OfflineDownload download) update,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    final key = _storageKeyFor(profileId);
+    final raw = preferences.getString(key);
+    if (raw == null) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final downloads = <OfflineDownload>[];
+      var found = false;
+      for (final value in decoded.whereType<Map>()) {
+        final download = OfflineDownload.fromJson(
+          value.map((key, item) => MapEntry('$key', item)),
+        );
+        if (download.id == id) {
+          downloads.add(update(download));
+          found = true;
+        } else {
+          downloads.add(download);
+        }
+      }
+      if (found) {
+        await preferences.setString(
+          key,
+          jsonEncode(downloads.map((download) => download.toJson()).toList()),
+        );
+      }
+    } on Object {
+      // The active controller will repair invalid persisted data on next load.
+    }
+  }
+
+  Future<void> _removePersistedDownload(String profileId, String id) async {
+    final preferences = await SharedPreferences.getInstance();
+    final key = _storageKeyFor(profileId);
+    final raw = preferences.getString(key);
+    if (raw == null) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final downloads = decoded
+          .whereType<Map>()
+          .map(
+            (value) => OfflineDownload.fromJson(
+              value.map((key, item) => MapEntry('$key', item)),
+            ),
+          )
+          .where((download) => download.id != id)
+          .toList(growable: false);
+      await preferences.setString(
+        key,
+        jsonEncode(downloads.map((download) => download.toJson()).toList()),
+      );
+    } on Object {
+      // Invalid persisted data is cleaned when this profile is next opened.
+    }
   }
 }
 
@@ -545,6 +758,23 @@ List<OfflineDownloadOption> _buildDownloadOptions(
 int _estimatedBytes({required double durationSeconds, required int bitrate}) {
   if (durationSeconds <= 0 || bitrate <= 0) return 0;
   return (durationSeconds * bitrate / 8 * 1.05).round();
+}
+
+int _effectiveDownloadTotal({
+  required int serverTotal,
+  required int estimatedTotal,
+  required int downloadedBytes,
+  required bool preferEstimatedTotal,
+}) {
+  if (!preferEstimatedTotal || estimatedTotal <= 0) {
+    return serverTotal > 0 ? serverTotal : estimatedTotal;
+  }
+  final plausibleServerTotal =
+      serverTotal > 0 &&
+      serverTotal >= estimatedTotal ~/ 4 &&
+      serverTotal <= estimatedTotal + (estimatedTotal ~/ 2);
+  if (plausibleServerTotal) return serverTotal;
+  return estimatedTotal > downloadedBytes ? estimatedTotal : downloadedBytes;
 }
 
 String _resolutionLabel(int? width, int? height) {

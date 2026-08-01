@@ -61,8 +61,14 @@ private object CastCoordinator : SessionManagerListener<CastSession> {
     fun attach(context: MainActivity, methodChannel: MethodChannel) {
         activity = context
         channel = methodChannel
-        castContext = CastContext.getSharedInstance(context).also {
-            it.sessionManager.addSessionManagerListener(this, CastSession::class.java)
+        castContext = try {
+            CastContext.getSharedInstance(context).also {
+                it.sessionManager.addSessionManagerListener(this, CastSession::class.java)
+            }
+        } catch (_: RuntimeException) {
+            // Cast is optional. Devices without Google Play services must still
+            // be able to launch the app and use local playback normally.
+            null
         }
     }
 
@@ -116,7 +122,7 @@ private object CastCoordinator : SessionManagerListener<CastSession> {
             }
             "showRouteChooser" -> {
                 val currentActivity = activity
-                if (currentActivity == null) {
+                if (currentActivity == null || castContext == null) {
                     result.error(
                         "cast_dialog_unavailable",
                         "The Google Cast device selector is unavailable.",
