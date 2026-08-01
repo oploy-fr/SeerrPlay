@@ -258,7 +258,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.seerrplay.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = app.seerrplay.client;
 				PRODUCT_NAME = SeerrPlay;
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;
@@ -279,7 +279,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = app.seerrplay.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = app.seerrplay.client;
 				PRODUCT_NAME = SeerrPlay;
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;

@@ -7,6 +7,8 @@ ROOT_DIR = File.expand_path("..", __dir__)
 FLUTTER_APP_DIR = File.join(ROOT_DIR, "apps", "seerrplay")
 IOS_WORKSPACE = File.join(FLUTTER_APP_DIR, "ios", "Runner.xcworkspace")
 IOS_EXPORT_OPTIONS = File.join(FLUTTER_APP_DIR, "ios", "ExportOptions.plist")
+MACOS_WORKSPACE = File.join(FLUTTER_APP_DIR, "macos", "Runner.xcworkspace")
+MACOS_EXPORT_OPTIONS = File.join(FLUTTER_APP_DIR, "macos", "ExportOptions.plist")
 TVOS_PROJECT = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "SeerrPlayTV.xcodeproj")
 TVOS_EXPORT_OPTIONS = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "ExportOptions.plist")
 OUTPUT_DIR = File.join(ROOT_DIR, "build", "fastlane")
@@ -15,11 +17,13 @@ IOS_APP_IDENTIFIERS = [
   "app.seerrplay.client",
   "app.seerrplay.client.SeerrPlayDownloadActivity"
 ].freeze
-TVOS_APP_IDENTIFIER = "app.seerrplay.tv"
+MACOS_APP_IDENTIFIER = "app.seerrplay.client"
+TVOS_APP_IDENTIFIER = "app.seerrplay.client"
 APPLE_TEAM_ID = "T494GRAXS3"
 IOS_APP_PROFILE = "match AppStore app.seerrplay.client"
 IOS_EXTENSION_PROFILE = "match AppStore app.seerrplay.client.SeerrPlayDownloadActivity"
-TVOS_APP_PROFILE = "match AppStore app.seerrplay.tv tvos"
+MACOS_APP_PROFILE = "match AppStore app.seerrplay.client macos"
+TVOS_APP_PROFILE = "match AppStore app.seerrplay.client tvos"
 
 def required_environment_value(name)
   value = ENV[name]
@@ -88,13 +92,21 @@ lane :sync_apple_signing do
   match(
     api_key: api_key,
     type: "appstore",
+    platform: "macos",
+    app_identifier: MACOS_APP_IDENTIFIER,
+    additional_cert_types: ["mac_installer_distribution"],
+    readonly: false
+  )
+  match(
+    api_key: api_key,
+    type: "appstore",
     platform: "tvos",
     app_identifier: TVOS_APP_IDENTIFIER,
     readonly: false
   )
 end
 
-desc "Build iOS and tvOS, then upload both applications to TestFlight"
+desc "Build iOS, macOS and tvOS, then upload every Apple application to TestFlight"
 lane :apple_beta do |options|
   build_number = release_build_number(options)
   marketing_version = release_marketing_version
@@ -108,6 +120,14 @@ lane :apple_beta do |options|
     type: "appstore",
     platform: "ios",
     app_identifier: IOS_APP_IDENTIFIERS,
+    readonly: is_ci
+  )
+  match(
+    api_key: api_key,
+    type: "appstore",
+    platform: "macos",
+    app_identifier: MACOS_APP_IDENTIFIER,
+    additional_cert_types: ["mac_installer_distribution"],
     readonly: is_ci
   )
   match(
@@ -135,6 +155,15 @@ lane :apple_beta do |options|
     build_configurations: ["Release"],
     code_sign_identity: "Apple Distribution",
     profile_name: IOS_EXTENSION_PROFILE
+  )
+  update_code_signing_settings(
+    path: File.join(FLUTTER_APP_DIR, "macos", "Runner.xcodeproj"),
+    use_automatic_signing: false,
+    team_id: APPLE_TEAM_ID,
+    targets: ["Runner"],
+    build_configurations: ["Release"],
+    code_sign_identity: "Apple Distribution",
+    profile_name: MACOS_APP_PROFILE
   )
   update_code_signing_settings(
     path: TVOS_PROJECT,
@@ -174,6 +203,33 @@ lane :apple_beta do |options|
     ].join(" ")
   )
 
+  Dir.chdir(FLUTTER_APP_DIR) do
+    sh(
+      "flutter",
+      "build",
+      "macos",
+      "--config-only",
+      "--release",
+      "--build-number=#{build_number}"
+    )
+  end
+
+  build_mac_app(
+    workspace: MACOS_WORKSPACE,
+    scheme: "Runner",
+    configuration: "Release",
+    sdk: "macosx",
+    clean: true,
+    export_options: MACOS_EXPORT_OPTIONS,
+    output_directory: OUTPUT_DIR,
+    output_name: "SeerrPlay-macOS",
+    xcargs: [
+      "CURRENT_PROJECT_VERSION=#{build_number}",
+      "MARKETING_VERSION=#{marketing_version}"
+    ].join(" ")
+  )
+  macos_pkg = lane_context[SharedValues::PKG_OUTPUT_PATH]
+
   tvos_ipa = build_app(
     project: TVOS_PROJECT,
     scheme: "SeerrPlayTV",
@@ -194,6 +250,13 @@ lane :apple_beta do |options|
     app_identifier: IOS_APP_IDENTIFIERS.first,
     app_platform: "ios",
     ipa: ios_ipa,
+    skip_waiting_for_build_processing: true
+  )
+  upload_to_testflight(
+    api_key: api_key,
+    app_identifier: MACOS_APP_IDENTIFIER,
+    app_platform: "osx",
+    pkg: macos_pkg,
     skip_waiting_for_build_processing: true
   )
   upload_to_testflight(

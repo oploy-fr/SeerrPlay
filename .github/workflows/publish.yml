@@ -93,7 +93,7 @@ jobs:
           printf '%s\n' "$MATCH_GIT_PRIVATE_KEY_CONTENT" > "$key_path"
           chmod 600 "$key_path"
           printf 'MATCH_GIT_PRIVATE_KEY=%s\n' "$key_path" >> "$GITHUB_ENV"
-      - name: Publish iOS and tvOS TestFlight builds
+      - name: Publish iOS, macOS and tvOS TestFlight builds
         env:
           APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}

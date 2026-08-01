@@ -1,0 +1,40 @@
+name: Refresh Apple signing assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-signing
+  cancel-in-progress: false
+
+jobs:
+  signing:
+    name: Create Apple certificates and profiles
+    runs-on: macos-15
+    environment: store-publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Configure match repository access
+        env:
+          MATCH_GIT_PRIVATE_KEY_CONTENT: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+        run: |
+          test -n "$MATCH_GIT_PRIVATE_KEY_CONTENT"
+          key_path="$RUNNER_TEMP/seerrplay-match-deploy-key"
+          printf '%s\n' "$MATCH_GIT_PRIVATE_KEY_CONTENT" > "$key_path"
+          chmod 600 "$key_path"
+          printf 'MATCH_GIT_PRIVATE_KEY=%s\n' "$key_path" >> "$GITHUB_ENV"
+      - name: Refresh Apple signing assets
+        env:
+          APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: bundle exec fastlane sync_apple_signing

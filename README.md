@@ -5,7 +5,7 @@ user's own media server.
 
 ## Applications
 
-- `apps/seerrplay`: Flutter for Android, Android TV, iPhone, and iPad.
+- `apps/seerrplay`: Flutter for Android, Android TV, iPhone, iPad, macOS, and Windows.
 - `apps/seerrplay_tvos`: native SwiftUI/AVKit application for Apple TV.
 
 SeerrPlay detects the media server configured in Seerr and supports Plex,
@@ -36,7 +36,7 @@ open SeerrPlayTV.xcodeproj
 
 ## Publishing
 
-GitHub Actions validates mobile and TV builds, publishes Android to the Google
-Play internal track, uploads iOS and tvOS to TestFlight, and deploys the public
+GitHub Actions validates mobile, desktop, and TV builds, publishes Android to
+the Google Play internal track, uploads iOS, macOS, and tvOS to TestFlight, and deploys the public
 privacy/support site. Configuration and secret names are documented in
 [`docs/release-publishing.md`](docs/release-publishing.md).

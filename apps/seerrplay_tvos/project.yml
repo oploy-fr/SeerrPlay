@@ -21,7 +21,7 @@ targets:
           - Branding
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.seerrplay.tv
+        PRODUCT_BUNDLE_IDENTIFIER: app.seerrplay.client
         PRODUCT_NAME: SeerrPlay
         ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
         GENERATE_INFOPLIST_FILE: YES

@@ -27,7 +27,7 @@ Create or refresh the encrypted Apple distribution assets in match
 [bundle exec] fastlane apple_beta
 ```
 
-Build iOS and tvOS, then upload both applications to TestFlight
+Build iOS, macOS and tvOS, then upload every Apple application to TestFlight
 
 ----
 

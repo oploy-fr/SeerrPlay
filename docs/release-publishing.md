@@ -11,7 +11,7 @@ builds without storing signing material in the repository.
 - `.github/workflows/publish.yml` runs for tags matching `v*` or manually from
   the Actions tab. GitHub Actions invokes the same Fastlane lanes that can be
   run locally: Android is uploaded to the Google Play internal-testing track,
-  while iOS and tvOS are uploaded to App Store Connect/TestFlight. Manual runs
+  while iOS, macOS, and tvOS are uploaded to App Store Connect/TestFlight. Manual runs
   can target Android, Apple, or all stores; version tags always publish all
   configured platforms.
 - `.github/workflows/pages.yml` publishes `store-site` to GitHub Pages for the
@@ -60,12 +60,12 @@ later releases.
 
 ## Apple signing with match
 
-Create the App Store Connect records and identifiers before the first workflow:
+Create one multi-platform App Store Connect record before the first workflow.
+iOS, macOS, and tvOS share its Apple ID, SKU, and explicit bundle identifier:
 
-- iOS: `app.seerrplay.client`
+- iOS, macOS, and tvOS: `app.seerrplay.client`
 - Live Activity extension:
   `app.seerrplay.client.SeerrPlayDownloadActivity`
-- tvOS: `app.seerrplay.tv`
 
 Create a separate private GitHub repository for Fastlane match, for example
 `oploy-fr/SeerrPlay-Certificates`, and initialize its `main` branch with a
@@ -103,16 +103,18 @@ Add these GitHub environment secrets:
 - `APPLE_API_KEY_ID`: App Store Connect API key identifier.
 - `APPLE_API_ISSUER_ID`: App Store Connect issuer identifier.
 - `MATCH_PASSWORD`: password used to encrypt the match repository.
-- `MATCH_GIT_PRIVATE_KEY`: private half of a dedicated read-only GitHub deploy
-  key installed on the private match repository.
+- `MATCH_GIT_PRIVATE_KEY`: private half of a dedicated GitHub deploy key
+  installed on the private match repository. Enable write access so the manual
+  signing workflow can create or renew encrypted assets.
 
 Add this GitHub environment variable:
 
 - `MATCH_GIT_URL`: SSH clone URL of the private match repository.
 
-Fastlane `setup_ci` creates a temporary macOS keychain. The CI workflow only
-reads existing signing assets from match; it never creates or replaces Apple
-certificates or profiles.
+Fastlane `setup_ci` creates a temporary macOS keychain. Store publishing only
+reads existing signing assets from match. Run **Refresh Apple signing assets**
+manually after adding a platform or when a certificate or profile must be
+created or renewed.
 
 ## Local Fastlane commands
 
@@ -150,7 +152,8 @@ renewed.
 
 5. Monitor **Actions → Publish store builds**. The workflow runs
    `fastlane android internal` and `fastlane apple_beta`.
-6. Test Android through the internal track and Apple through TestFlight.
+6. Test Android through the internal track and iOS, macOS, and tvOS through
+   TestFlight.
 7. Promote the validated build and submit the completed Store listing for
    review.
 

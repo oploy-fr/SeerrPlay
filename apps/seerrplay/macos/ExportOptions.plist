@@ -8,13 +8,13 @@
 	<false/>
 	<key>method</key>
 	<string>app-store-connect</string>
-	<key>signingStyle</key>
-	<string>manual</string>
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>app.seerrplay.client</key>
-		<string>match AppStore app.seerrplay.client tvos</string>
+		<string>match AppStore app.seerrplay.client macos</string>
 	</dict>
+	<key>signingStyle</key>
+	<string>manual</string>
 	<key>stripSwiftSymbols</key>
 	<true/>
 	<key>teamID</key>
