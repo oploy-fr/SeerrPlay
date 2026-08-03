@@ -1,0 +1,1 @@
+media server,streaming,requests,offline,Seerr,Jellyfin,Plex,Emby,movies,series

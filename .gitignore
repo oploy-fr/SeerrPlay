@@ -3,7 +3,6 @@
 build/
 fastlane/report.xml
 fastlane/Preview.html
-fastlane/screenshots/
 fastlane/test_output/
 apps/seerrplay/build/
 apps/seerrplay/.dart_tool/

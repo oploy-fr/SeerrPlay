@@ -1,0 +1,1 @@
+server,streaming,richieste,offline,Seerr,Jellyfin,Plex,Emby,film,serie

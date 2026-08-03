@@ -1,0 +1,18 @@
+SeerrPlay réunit la découverte, les demandes de médias, la lecture native et l'accès hors ligne pour les serveurs personnels que vous êtes autorisé à utiliser.
+
+Connectez directement votre instance Seerr et un serveur compatible Jellyfin, Plex ou Emby. Il n'existe aucune passerelle cloud SeerrPlay : les recherches, demandes, identifiants et activités de lecture circulent entre votre appareil Android et les serveurs que vous configurez.
+
+Avec SeerrPlay, vous pouvez :
+
+• Parcourir les films et séries tendance, les collections par diffuseur et vos bibliothèques
+• Rechercher depuis Seerr et consulter les fiches des médias, saisons, épisodes et acteurs
+• Demander les titres indisponibles et suivre les statuts en attente, téléchargement, partiel et disponible
+• Reprendre vos films et épisodes, ou passer au prochain épisode non visionné
+• Utiliser un lecteur natif avec pistes audio, sous-titres, qualité, vitesse, navigation et format d'image
+• Diffuser les lectures compatibles vers des appareils Google Cast
+• Télécharger les médias compatibles pour les regarder hors ligne et gérer le stockage local
+• Utiliser plusieurs profils et limiter éventuellement un profil enfant selon l'âge
+
+Les fonctions disponibles dépendent de votre appareil Android, de votre version de Seerr et de la configuration de votre serveur multimédia.
+
+SeerrPlay est un client indépendant et non officiel. L'application n'est affiliée ni à Seerr, ni à Jellyfin, Plex ou Emby. SeerrPlay n'héberge, ne vend, n'indexe et ne fournit aucun média, et n'intègre aucun client torrent. Une instance Seerr administrée par l'utilisateur, un serveur multimédia personnel compatible et un accès autorisé sont nécessaires.

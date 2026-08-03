@@ -12,6 +12,9 @@ MACOS_EXPORT_OPTIONS = File.join(FLUTTER_APP_DIR, "macos", "ExportOptions.plist"
 TVOS_PROJECT = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "SeerrPlayTV.xcodeproj")
 TVOS_EXPORT_OPTIONS = File.join(ROOT_DIR, "apps", "seerrplay_tvos", "ExportOptions.plist")
 OUTPUT_DIR = File.join(ROOT_DIR, "build", "fastlane")
+APPLE_METADATA_DIR = File.join(ROOT_DIR, "fastlane", "metadata")
+APPLE_SCREENSHOTS_DIR = File.join(ROOT_DIR, "fastlane", "screenshots")
+ANDROID_METADATA_DIR = File.join(ROOT_DIR, "fastlane", "metadata", "android")
 
 IOS_APP_IDENTIFIERS = [
   "app.seerrplay.client",
@@ -103,6 +106,51 @@ lane :sync_apple_signing do
     platform: "tvos",
     app_identifier: TVOS_APP_IDENTIFIER,
     readonly: false
+  )
+end
+
+desc "Upload iOS and macOS App Store metadata without touching tvOS"
+lane :apple_store_metadata do
+  api_key = app_store_api_key
+
+  ["ios", "osx"].each do |platform_name|
+    begin
+      upload_to_app_store(
+        api_key: api_key,
+        app_identifier: IOS_APP_IDENTIFIERS.first,
+        platform: platform_name,
+        metadata_path: APPLE_METADATA_DIR,
+        skip_binary_upload: true,
+        skip_screenshots: true,
+        run_precheck_before_submit: false,
+        submit_for_review: false,
+        force: true
+      )
+    rescue RuntimeError => error
+      raise unless error.message == "No data"
+
+      UI.important(
+        "App Store Connect accepted the #{platform_name} metadata but returned " \
+        "an empty review-detail response. Continuing with the next platform."
+      )
+    end
+  end
+end
+
+desc "Upload the prepared macOS screenshots without touching tvOS"
+lane :apple_macos_screenshots do
+  upload_to_app_store(
+    api_key: app_store_api_key,
+    app_identifier: MACOS_APP_IDENTIFIER,
+    platform: "osx",
+    metadata_path: APPLE_METADATA_DIR,
+    screenshots_path: APPLE_SCREENSHOTS_DIR,
+    skip_binary_upload: true,
+    skip_metadata: true,
+    overwrite_screenshots: true,
+    run_precheck_before_submit: false,
+    submit_for_review: false,
+    force: true
   )
 end
 
@@ -269,6 +317,21 @@ lane :apple_beta do |options|
 end
 
 platform :android do
+  desc "Upload the Google Play listing without uploading a build"
+  lane :store_metadata do
+    upload_to_play_store(
+      package_name: "app.seerrplay.client",
+      metadata_path: ANDROID_METADATA_DIR,
+      json_key_data: required_environment_value("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      track: "internal",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
   desc "Build the signed Android App Bundle and upload it to internal testing"
   lane :internal do |options|
     build_number = release_build_number(options)

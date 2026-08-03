@@ -1,0 +1,19 @@
+SeerrPlay vereint Entdeckung, Medienanfragen, native Wiedergabe und Offline-Zugriff für persönliche Server, zu deren Nutzung du berechtigt bist.
+
+Verbinde dich direkt mit deiner Seerr-Instanz und einem kompatiblen Jellyfin-, Plex- oder Emby-Server. SeerrPlay verwendet kein Cloud-Gateway: Suchanfragen, Anfragen, Zugangsdaten und Wiedergabeaktivitäten werden direkt zwischen deinem Gerät und den von dir eingerichteten Servern übertragen.
+
+EINE APP FÜR DEN GESAMTEN ABLAUF
+
+• Entdecke angesagte Filme und Serien, Anbieter-Sammlungen und deine Serverbibliotheken
+• Durchsuche Seerr und öffne ausführliche Seiten zu Medien, Staffeln, Episoden und Darstellern
+• Fordere nicht verfügbare Titel an und verfolge die Status ausstehend, wird geladen, teilweise und verfügbar
+• Setze Filme und Episoden fort oder starte die nächste noch nicht gesehene Episode
+• Nutze native Steuerelemente für Audiospuren, Untertitel, Qualität, Geschwindigkeit, Suche und Bildformat
+• Lade kompatible Medien für die Offline-Wiedergabe herunter und verwalte den lokalen Speicher
+• Wechsle zwischen Profilen und beschränke ein Kinderprofil optional nach Altersfreigabe
+
+SeerrPlay wurde für Smartphones, Tablets und Computer entwickelt und passt Navigation und Player an jede Plattform an. Die verfügbaren Funktionen hängen vom Gerät und von der Serverkonfiguration ab.
+
+WICHTIG
+
+SeerrPlay ist ein unabhängiger, inoffizieller Client. Es besteht keine Verbindung zu Seerr, Jellyfin, Plex oder Emby. SeerrPlay hostet, verkauft, indexiert oder stellt keine Medien bereit und enthält keinen Torrent-Client. Erforderlich sind eine vom Benutzer betriebene Seerr-Instanz, ein kompatibler persönlicher Medienserver und ein autorisierter Zugriff.

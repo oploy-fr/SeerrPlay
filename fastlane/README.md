@@ -21,6 +21,22 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 Create or refresh the encrypted Apple distribution assets in match
 
+### apple_store_metadata
+
+```sh
+[bundle exec] fastlane apple_store_metadata
+```
+
+Upload iOS and macOS App Store metadata without touching tvOS
+
+### apple_macos_screenshots
+
+```sh
+[bundle exec] fastlane apple_macos_screenshots
+```
+
+Upload the prepared macOS screenshots without touching tvOS
+
 ### apple_beta
 
 ```sh
@@ -33,6 +49,14 @@ Build iOS, macOS and tvOS, then upload every Apple application to TestFlight
 
 
 ## Android
+
+### android store_metadata
+
+```sh
+[bundle exec] fastlane android store_metadata
+```
+
+Upload the Google Play listing without uploading a build
 
 ### android internal
 
